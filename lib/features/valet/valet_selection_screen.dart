@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../booking/booking_details_screen.dart';
 
 class ValetSelectionScreen extends StatelessWidget {
   final String destinationName;
@@ -8,7 +9,10 @@ class ValetSelectionScreen extends StatelessWidget {
     required this.destinationName,
   });
 
-  // QuickPark currently has one standard valet service.
+  // ============================================================
+  // QUICKPARK VALETS
+  // ============================================================
+
   final List<Valet> valets = const [
     Valet(
       name: 'QuickPark Valet',
@@ -28,18 +32,27 @@ class ValetSelectionScreen extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            // ==========================================
+
+            // ==================================================
             // HEADER
-            // ==========================================
+            // ==================================================
 
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 12),
+              padding: const EdgeInsets.fromLTRB(
+                20,
+                18,
+                20,
+                12,
+              ),
+
               child: Row(
                 children: [
+
                   GestureDetector(
                     onTap: () {
                       Navigator.pop(context);
                     },
+
                     child: const Icon(
                       Icons.arrow_back_ios_new,
                       size: 20,
@@ -50,7 +63,9 @@ class ValetSelectionScreen extends StatelessWidget {
                   const Expanded(
                     child: Text(
                       'Available valets',
+
                       textAlign: TextAlign.center,
+
                       style: TextStyle(
                         fontSize: 19,
                         fontWeight: FontWeight.w700,
@@ -59,26 +74,38 @@ class ValetSelectionScreen extends StatelessWidget {
                     ),
                   ),
 
-                  const SizedBox(width: 20),
+                  const SizedBox(
+                    width: 20,
+                  ),
                 ],
               ),
             ),
 
-            // ==========================================
+            // ==================================================
             // DESTINATION
-            // ==========================================
+            // ==================================================
 
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 10, 20, 20),
+              padding: const EdgeInsets.fromLTRB(
+                20,
+                10,
+                20,
+                20,
+              ),
+
               child: Row(
                 children: [
+
                   Container(
                     width: 46,
                     height: 46,
+
                     decoration: BoxDecoration(
                       color: const Color(0xFFFFE8EE),
-                      borderRadius: BorderRadius.circular(14),
+                      borderRadius:
+                          BorderRadius.circular(14),
                     ),
+
                     child: const Icon(
                       Icons.location_on_outlined,
                       color: Color(0xFFEF0038),
@@ -86,24 +113,33 @@ class ValetSelectionScreen extends StatelessWidget {
                     ),
                   ),
 
-                  const SizedBox(width: 12),
+                  const SizedBox(
+                    width: 12,
+                  ),
 
                   Expanded(
                     child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment:
+                          CrossAxisAlignment.start,
+
                       children: [
+
                         const Text(
                           'Your destination',
+
                           style: TextStyle(
                             fontSize: 12,
                             color: Color(0xFF777777),
                           ),
                         ),
 
-                        const SizedBox(height: 3),
+                        const SizedBox(
+                          height: 3,
+                        ),
 
                         Text(
                           destinationName,
+
                           style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
@@ -117,29 +153,56 @@ class ValetSelectionScreen extends StatelessWidget {
               ),
             ),
 
-            // ==========================================
-            // AVAILABLE VALET
-            // ==========================================
+            // ==================================================
+            // AVAILABLE VALETS
+            // ==================================================
 
             Expanded(
               child: ListView.builder(
-                padding: const EdgeInsets.symmetric(
+                padding:
+                    const EdgeInsets.symmetric(
                   horizontal: 20,
                 ),
+
                 itemCount: valets.length,
+
                 itemBuilder: (context, index) {
                   final valet = valets[index];
 
                   return _ValetCard(
                     valet: valet,
+
+                    // ==================================================
+                    // SELECT VALET
+                    // ==================================================
+
                     onSelect: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${valet.name} selected',
-                          ),
-                          duration: const Duration(
-                            seconds: 1,
+                      Navigator.push(
+                        context,
+
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              BookingDetailsScreen(
+                            destinationName:
+                                destinationName,
+
+                            valetName:
+                                valet.name,
+
+                            rating:
+                                valet.rating,
+
+                            distance:
+                                valet.distance,
+
+                            eta:
+                                valet.eta,
+
+                            price:
+                                valet.price,
+
+                            slots:
+                                valet.slots,
                           ),
                         ),
                       );
@@ -155,9 +218,9 @@ class ValetSelectionScreen extends StatelessWidget {
   }
 }
 
-// =====================================================
+// ================================================================
 // VALET CARD
-// =====================================================
+// ================================================================
 
 class _ValetCard extends StatelessWidget {
   final Valet valet;
@@ -175,72 +238,97 @@ class _ValetCard extends StatelessWidget {
 
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
+
+        borderRadius:
+            BorderRadius.circular(18),
+
         border: Border.all(
           color: const Color(0xFFE7E7E7),
         ),
       ),
 
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+
         children: [
-          // ==========================================
+
+          // ==================================================
           // VALET NAME
-          // ==========================================
+          // ==================================================
 
           Row(
             children: [
+
               Container(
                 width: 50,
                 height: 50,
 
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFFE8EE),
-                  borderRadius: BorderRadius.circular(14),
+                  color:
+                      const Color(0xFFFFE8EE),
+
+                  borderRadius:
+                      BorderRadius.circular(14),
                 ),
 
                 child: const Icon(
                   Icons.directions_car_outlined,
-                  color: Color(0xFFEF0038),
+                  color:
+                      Color(0xFFEF0038),
                   size: 27,
                 ),
               ),
 
-              const SizedBox(width: 13),
+              const SizedBox(
+                width: 13,
+              ),
 
               Expanded(
                 child: Column(
                   crossAxisAlignment:
                       CrossAxisAlignment.start,
+
                   children: [
+
                     Text(
                       valet.name,
 
                       style: const TextStyle(
                         fontSize: 17,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF171717),
+                        fontWeight:
+                            FontWeight.w700,
+                        color:
+                            Color(0xFF171717),
                       ),
                     ),
 
-                    const SizedBox(height: 5),
+                    const SizedBox(
+                      height: 5,
+                    ),
 
                     Row(
                       children: [
+
                         const Icon(
                           Icons.star,
                           size: 16,
-                          color: Color(0xFFFFB000),
+                          color:
+                              Color(0xFFFFB000),
                         ),
 
-                        const SizedBox(width: 4),
+                        const SizedBox(
+                          width: 4,
+                        ),
 
                         Text(
                           valet.rating,
 
-                          style: const TextStyle(
+                          style:
+                              const TextStyle(
                             fontSize: 13,
-                            color: Color(0xFF666666),
+                            color:
+                                Color(0xFF666666),
                           ),
                         ),
                       ],
@@ -249,16 +337,24 @@ class _ValetCard extends StatelessWidget {
                 ),
               ),
 
-              // Available
+              // ==================================================
+              // AVAILABLE
+              // ==================================================
+
               Container(
-                padding: const EdgeInsets.symmetric(
+                padding:
+                    const EdgeInsets.symmetric(
                   horizontal: 9,
                   vertical: 5,
                 ),
 
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF8F0),
-                  borderRadius: BorderRadius.circular(8),
+                decoration:
+                    BoxDecoration(
+                  color:
+                      const Color(0xFFEAF8F0),
+
+                  borderRadius:
+                      BorderRadius.circular(8),
                 ),
 
                 child: const Text(
@@ -266,133 +362,169 @@ class _ValetCard extends StatelessWidget {
 
                   style: TextStyle(
                     fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFF1D8A50),
+                    fontWeight:
+                        FontWeight.w700,
+                    color:
+                        Color(0xFF1D8A50),
                   ),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 22),
+          const SizedBox(
+            height: 22,
+          ),
 
-          // ==========================================
+          // ==================================================
           // DISTANCE
-          // ==========================================
+          // ==================================================
 
           Row(
             children: [
+
               const Icon(
                 Icons.directions_walk_outlined,
                 size: 19,
-                color: Color(0xFF666666),
+                color:
+                    Color(0xFF666666),
               ),
 
-              const SizedBox(width: 9),
+              const SizedBox(
+                width: 9,
+              ),
 
               Text(
                 valet.distance,
 
                 style: const TextStyle(
                   fontSize: 14,
-                  color: Color(0xFF555555),
+                  color:
+                      Color(0xFF555555),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 11),
+          const SizedBox(
+            height: 11,
+          ),
 
-          // ==========================================
+          // ==================================================
           // ETA
-          // ==========================================
+          // ==================================================
 
           Row(
             children: [
+
               const Icon(
                 Icons.access_time,
                 size: 19,
-                color: Color(0xFF666666),
+                color:
+                    Color(0xFF666666),
               ),
 
-              const SizedBox(width: 9),
+              const SizedBox(
+                width: 9,
+              ),
 
               Text(
                 valet.eta,
 
                 style: const TextStyle(
                   fontSize: 14,
-                  color: Color(0xFF555555),
+                  color:
+                      Color(0xFF555555),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 11),
+          const SizedBox(
+            height: 11,
+          ),
 
-          // ==========================================
+          // ==================================================
           // PARKING SLOTS
-          // ==========================================
+          // ==================================================
 
           Row(
             children: [
+
               const Icon(
                 Icons.local_parking_outlined,
                 size: 19,
-                color: Color(0xFF666666),
+                color:
+                    Color(0xFF666666),
               ),
 
-              const SizedBox(width: 9),
+              const SizedBox(
+                width: 9,
+              ),
 
               Text(
                 valet.slots,
 
                 style: const TextStyle(
                   fontSize: 14,
-                  color: Color(0xFF555555),
+                  color:
+                      Color(0xFF555555),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(height: 20),
+          const SizedBox(
+            height: 20,
+          ),
 
           const Divider(
             height: 1,
-            color: Color(0xFFEAEAEA),
+            color:
+                Color(0xFFEAEAEA),
           ),
 
-          const SizedBox(height: 16),
+          const SizedBox(
+            height: 16,
+          ),
 
-          // ==========================================
+          // ==================================================
           // PRICE + SELECT BUTTON
-          // ==========================================
+          // ==================================================
 
           Row(
             children: [
+
               Expanded(
                 child: Column(
                   crossAxisAlignment:
                       CrossAxisAlignment.start,
+
                   children: [
+
                     Text(
                       valet.price,
 
                       style: const TextStyle(
                         fontSize: 23,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF171717),
+                        fontWeight:
+                            FontWeight.w800,
+                        color:
+                            Color(0xFF171717),
                       ),
                     ),
 
-                    const SizedBox(height: 2),
+                    const SizedBox(
+                      height: 2,
+                    ),
 
                     const Text(
                       'starting price',
 
                       style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFF777777),
+                        color:
+                            Color(0xFF777777),
                       ),
                     ),
                   ],
@@ -405,21 +537,28 @@ class _ValetCard extends StatelessWidget {
                 child: ElevatedButton(
                   onPressed: onSelect,
 
-                  style: ElevatedButton.styleFrom(
+                  style:
+                      ElevatedButton.styleFrom(
                     backgroundColor:
-                        const Color(0xFFEF0038),
+                        const Color(
+                            0xFFEF0038),
 
-                    foregroundColor: Colors.white,
+                    foregroundColor:
+                        Colors.white,
 
                     elevation: 0,
 
-                    padding: const EdgeInsets.symmetric(
+                    padding:
+                        const EdgeInsets.symmetric(
                       horizontal: 22,
                     ),
 
-                    shape: RoundedRectangleBorder(
+                    shape:
+                        RoundedRectangleBorder(
                       borderRadius:
-                          BorderRadius.circular(13),
+                          BorderRadius.circular(
+                        13,
+                      ),
                     ),
                   ),
 
@@ -428,7 +567,8 @@ class _ValetCard extends StatelessWidget {
 
                     style: TextStyle(
                       fontSize: 14,
-                      fontWeight: FontWeight.w700,
+                      fontWeight:
+                          FontWeight.w700,
                     ),
                   ),
                 ),
@@ -441,9 +581,9 @@ class _ValetCard extends StatelessWidget {
   }
 }
 
-// =====================================================
+// ================================================================
 // VALET MODEL
-// =====================================================
+// ================================================================
 
 class Valet {
   final String name;

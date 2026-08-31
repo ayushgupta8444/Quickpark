@@ -1,7 +1,8 @@
 import 'dart:async';
+
 import 'package:flutter/material.dart';
 
-import '../location/location_permission_screen.dart';
+import '../auth/login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -11,35 +12,39 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  Timer? _timer;
+
   @override
   void initState() {
     super.initState();
 
-    // Show splash screen for 2 seconds
-    Timer(const Duration(seconds: 2), () {
+    _timer = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (context) => const LocationPermissionScreen(),
+          builder: (_) => const LoginScreen(),
         ),
       );
     });
   }
 
   @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFEF0038),
-
       body: SafeArea(
         child: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-
-              // QuickPark Logo
               Container(
                 width: 72,
                 height: 72,
@@ -61,7 +66,6 @@ class _SplashScreenState extends State<SplashScreen> {
 
               const SizedBox(height: 24),
 
-              // App Name
               const Text(
                 'QuickPark',
                 style: TextStyle(
@@ -74,7 +78,6 @@ class _SplashScreenState extends State<SplashScreen> {
 
               const SizedBox(height: 12),
 
-              // Tagline
               const Text(
                 'Verified valet. Zero waiting.',
                 style: TextStyle(
