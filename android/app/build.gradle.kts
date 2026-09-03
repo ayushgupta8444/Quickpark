@@ -1,16 +1,13 @@
 plugins {
     id("com.android.application")
-    // START: FlutterFire Configuration
+    id("org.jetbrains.kotlin.android")
     id("com.google.gms.google-services")
-    // END: FlutterFire Configuration
-    // The Flutter Gradle Plugin must be applied after the Android and Kotlin plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
 android {
     namespace = "com.example.quickpark"
 
-    // permission_handler requires Android SDK 37+
     compileSdk = 37
 
     ndkVersion = flutter.ndkVersion
@@ -32,8 +29,6 @@ android {
 
     buildTypes {
         release {
-            // Debug signing for development.
-            // We'll configure proper release signing before publishing.
             signingConfig = signingConfigs.getByName("debug")
         }
     }

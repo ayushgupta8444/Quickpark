@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "1000153123087-388lj02h4tuunocj817on3b8nvf4d54o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.quickpark",
+            "certificate_hash": "e852b8317ffe04e4e75510276b5da7d12154704b"
+          }
+        },
+        {
           "client_id": "1000153123087-shb0t6h1knt3qkaocg7m2ikntri8m0cp.apps.googleusercontent.com",
           "client_type": 3
         }

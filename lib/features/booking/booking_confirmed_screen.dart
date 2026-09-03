@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'my_bookings_screen.dart';
 
 class BookingConfirmedScreen extends StatelessWidget {
@@ -19,171 +20,616 @@ class BookingConfirmedScreen extends StatelessWidget {
     required this.price,
   });
 
+  static const Color red =
+      Color(0xFFEF0038);
+
+  static const Color black =
+      Color(0xFF171717);
+
+  static const Color grey =
+      Color(0xFF777777);
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
 
       body: SafeArea(
-        child: Padding(
-          padding:
-              const EdgeInsets.symmetric(
-            horizontal: 24,
-          ),
+        child: Column(
+          children: [
+            // ======================================================
+            // HEADER
+            // ======================================================
 
-          child: Column(
-            children: [
-              const Spacer(),
-
-              // ==================================================
-              // SUCCESS ICON
-              // ==================================================
-
-              Container(
-                width: 105,
-                height: 105,
-
-                decoration:
-                    const BoxDecoration(
-                  color:
-                      Color(0xFFEAF8F0),
-                  shape: BoxShape.circle,
-                ),
-
-                child: const Icon(
-                  Icons.check,
-                  size: 55,
-                  color:
-                      Color(0xFF1D8A50),
-                ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                12,
+                10,
+                12,
+                0,
               ),
 
-              const SizedBox(
-                  height: 28),
+              child: Row(
+                children: [
+                  IconButton(
+                    onPressed: () {
+                      Navigator.pushReplacement(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const MyBookingsScreen(),
+                        ),
+                      );
+                    },
 
-              const Text(
-                'Booking Confirmed!',
-                textAlign:
-                    TextAlign.center,
+                    icon: const Icon(
+                      Icons.arrow_back_ios_new,
+                      size: 19,
+                      color: black,
+                    ),
+                  ),
 
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight:
-                      FontWeight.w800,
-                  color:
-                      Color(0xFF171717),
-                ),
+                  const Expanded(
+                    child: Text(
+                      'Booking confirmed',
+                      textAlign: TextAlign.center,
+
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight:
+                            FontWeight.w700,
+                        color: black,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(
+                    width: 48,
+                  ),
+                ],
               ),
+            ),
 
-              const SizedBox(
-                  height: 10),
+            // ======================================================
+            // CONTENT
+            // ======================================================
 
-              const Text(
-                'Your valet has been reserved successfully.',
-                textAlign:
-                    TextAlign.center,
-
-                style: TextStyle(
-                  fontSize: 15,
-                  height: 1.4,
-                  color:
-                      Color(0xFF707070),
-                ),
-              ),
-
-              const SizedBox(
-                  height: 30),
-
-              // ==================================================
-              // BOOKING CARD
-              // ==================================================
-
-              Container(
-                width: double.infinity,
+            Expanded(
+              child: SingleChildScrollView(
+                physics:
+                    const BouncingScrollPhysics(),
 
                 padding:
-                    const EdgeInsets.all(
-                  18,
-                ),
-
-                decoration:
-                    BoxDecoration(
-                  color:
-                      const Color(
-                          0xFFF7F7F7),
-
-                  borderRadius:
-                      BorderRadius.circular(
-                    18,
-                  ),
+                    const EdgeInsets.fromLTRB(
+                  20,
+                  30,
+                  20,
+                  30,
                 ),
 
                 child: Column(
                   children: [
-                    _infoRow(
-                      'Booking ID',
-                      bookingId
-                          .substring(
-                            0,
-                            bookingId.length >
-                                    8
-                                ? 8
-                                : bookingId
-                                    .length,
-                          )
-                          .toUpperCase(),
+                    const SizedBox(
+                      height: 35,
                     ),
 
-                    _infoRow(
-                      'Valet',
-                      valetName,
+                    // ==================================================
+                    // SUCCESS ICON
+                    // ==================================================
+
+                    Container(
+                      width: 86,
+                      height: 86,
+
+                      decoration:
+                          const BoxDecoration(
+                        color:
+                            Color(0xFFEAF8F0),
+                        shape:
+                            BoxShape.circle,
+                      ),
+
+                      child: const Icon(
+                        Icons.check_rounded,
+                        color:
+                            Color(0xFF1D9A59),
+                        size: 52,
+                      ),
                     ),
 
-                    _infoRow(
-                      'Destination',
-                      destinationName,
+                    const SizedBox(
+                      height: 24,
                     ),
 
-                    _infoRow(
-                      'Vehicle',
-                      '$carModel • $carNumber',
+                    // ==================================================
+                    // TITLE
+                    // ==================================================
+
+                    const Text(
+                      'Booking Confirmed!',
+
+                      textAlign:
+                          TextAlign.center,
+
+                      style: TextStyle(
+                        fontSize: 25,
+                        fontWeight:
+                            FontWeight.w800,
+                        color: black,
+                      ),
                     ),
 
-                    _infoRow(
-                      'Amount',
-                      price,
-                      isLast: true,
+                    const SizedBox(
+                      height: 8,
+                    ),
+
+                    const Text(
+                      'Your valet parking has been\nsuccessfully booked.',
+
+                      textAlign:
+                          TextAlign.center,
+
+                      style: TextStyle(
+                        fontSize: 13,
+                        height: 1.45,
+                        color: grey,
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 30,
+                    ),
+
+                    // ==================================================
+                    // BOOKING CARD
+                    // ==================================================
+
+                    Container(
+                      width: double.infinity,
+
+                      padding:
+                          const EdgeInsets.all(
+                        17,
+                      ),
+
+                      decoration:
+                          BoxDecoration(
+                        color: Colors.white,
+
+                        borderRadius:
+                            BorderRadius.circular(
+                          17,
+                        ),
+
+                        border: Border.all(
+                          color:
+                              const Color(
+                            0xFFE5E5E7,
+                          ),
+                        ),
+                      ),
+
+                      child: Column(
+                        crossAxisAlignment:
+                            CrossAxisAlignment
+                                .start,
+
+                        children: [
+                          // ============================================
+                          // VALET
+                          // ============================================
+
+                          Row(
+                            children: [
+                              Container(
+                                width: 46,
+                                height: 46,
+
+                                decoration:
+                                    BoxDecoration(
+                                  color:
+                                      const Color(
+                                    0xFFFFE8EE,
+                                  ),
+
+                                  borderRadius:
+                                      BorderRadius
+                                          .circular(
+                                    13,
+                                  ),
+                                ),
+
+                                child:
+                                    const Icon(
+                                  Icons
+                                      .directions_car_outlined,
+                                  color: red,
+                                  size: 25,
+                                ),
+                              ),
+
+                              const SizedBox(
+                                width: 12,
+                              ),
+
+                              Expanded(
+                                child:
+                                    Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment
+                                          .start,
+
+                                  children: [
+                                    Text(
+                                      valetName,
+
+                                      maxLines: 1,
+
+                                      overflow:
+                                          TextOverflow
+                                              .ellipsis,
+
+                                      style:
+                                          const TextStyle(
+                                        fontSize:
+                                            16,
+                                        fontWeight:
+                                            FontWeight
+                                                .w700,
+                                        color:
+                                            black,
+                                      ),
+                                    ),
+
+                                    const SizedBox(
+                                      height: 4,
+                                    ),
+
+                                    const Row(
+                                      children: [
+                                        Icon(
+                                          Icons
+                                              .check_circle,
+                                          color:
+                                              Color(
+                                            0xFF1D9A59,
+                                          ),
+                                          size:
+                                              14,
+                                        ),
+
+                                        SizedBox(
+                                          width: 4,
+                                        ),
+
+                                        Text(
+                                          'Confirmed',
+                                          style:
+                                              TextStyle(
+                                            fontSize:
+                                                11,
+                                            fontWeight:
+                                                FontWeight
+                                                    .w600,
+                                            color:
+                                                Color(
+                                              0xFF1D9A59,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(
+                            height: 17,
+                          ),
+
+                          const Divider(
+                            height: 1,
+                            color:
+                                Color(0xFFEAEAEA),
+                          ),
+
+                          const SizedBox(
+                            height: 15,
+                          ),
+
+                          // ============================================
+                          // DESTINATION
+                          // ============================================
+
+                          _InfoRow(
+                            icon: Icons
+                                .location_on_outlined,
+
+                            title:
+                                'Destination',
+
+                            value:
+                                destinationName,
+                          ),
+
+                          const SizedBox(
+                            height: 14,
+                          ),
+
+                          // ============================================
+                          // VEHICLE
+                          // ============================================
+
+                          _InfoRow(
+                            icon: Icons
+                                .directions_car_outlined,
+
+                            title:
+                                'Vehicle',
+
+                            value:
+                                '$carModel • $carNumber',
+                          ),
+
+                          const SizedBox(
+                            height: 14,
+                          ),
+
+                          // ============================================
+                          // AMOUNT
+                          // ============================================
+
+                          Row(
+                            children: [
+                              Container(
+                                width: 38,
+                                height: 38,
+
+                                decoration:
+                                    BoxDecoration(
+                                  color:
+                                      const Color(
+                                    0xFFF5F5F6,
+                                  ),
+
+                                  borderRadius:
+                                      BorderRadius
+                                          .circular(
+                                    11,
+                                  ),
+                                ),
+
+                                child:
+                                    const Icon(
+                                  Icons
+                                      .payments_outlined,
+                                  color:
+                                      Color(
+                                    0xFF555555,
+                                  ),
+                                  size: 19,
+                                ),
+                              ),
+
+                              const SizedBox(
+                                width: 11,
+                              ),
+
+                              const Expanded(
+                                child:
+                                    Text(
+                                  'Amount',
+                                  style:
+                                      TextStyle(
+                                    fontSize:
+                                        12,
+                                    color:
+                                        grey,
+                                  ),
+                                ),
+                              ),
+
+                              Text(
+                                price,
+
+                                style:
+                                    const TextStyle(
+                                  fontSize:
+                                      20,
+                                  fontWeight:
+                                      FontWeight
+                                          .w800,
+                                  color:
+                                      black,
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(
+                            height: 15,
+                          ),
+
+                          const Divider(
+                            height: 1,
+                            color:
+                                Color(0xFFEAEAEA),
+                          ),
+
+                          const SizedBox(
+                            height: 12,
+                          ),
+
+                          // ============================================
+                          // BOOKING ID
+                          // ============================================
+
+                          Row(
+                            children: [
+                              const Text(
+                                'Booking ID',
+
+                                style:
+                                    TextStyle(
+                                  fontSize:
+                                      11,
+                                  color:
+                                      Color(
+                                    0xFF999999,
+                                  ),
+                                ),
+                              ),
+
+                              const Spacer(),
+
+                              Flexible(
+                                child: Text(
+                                  bookingId,
+
+                                  textAlign:
+                                      TextAlign
+                                          .right,
+
+                                  overflow:
+                                      TextOverflow
+                                          .ellipsis,
+
+                                  style:
+                                      const TextStyle(
+                                    fontSize:
+                                        11,
+                                    fontWeight:
+                                        FontWeight
+                                            .w600,
+                                    color:
+                                        Color(
+                                      0xFF555555,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    const SizedBox(
+                      height: 18,
+                    ),
+
+                    // ==================================================
+                    // INFORMATION
+                    // ==================================================
+
+                    Container(
+                      width: double.infinity,
+
+                      padding:
+                          const EdgeInsets.all(
+                        14,
+                      ),
+
+                      decoration:
+                          BoxDecoration(
+                        color:
+                            const Color(
+                          0xFFFFF5F7,
+                        ),
+
+                        borderRadius:
+                            BorderRadius.circular(
+                          13,
+                        ),
+
+                        border: Border.all(
+                          color:
+                              const Color(
+                            0xFFFFE0E6,
+                          ),
+                        ),
+                      ),
+
+                      child: const Row(
+                        crossAxisAlignment:
+                            CrossAxisAlignment
+                                .start,
+
+                        children: [
+                          Icon(
+                            Icons
+                                .info_outline,
+                            color: red,
+                            size: 19,
+                          ),
+
+                          SizedBox(
+                            width: 10,
+                          ),
+
+                          Expanded(
+                            child: Text(
+                              'Your booking is saved. You can view it anytime from My Bookings.',
+                              style:
+                                  TextStyle(
+                                fontSize:
+                                    12,
+                                height:
+                                    1.4,
+                                color:
+                                    Color(
+                                  0xFF666666,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
               ),
+            ),
 
-              const Spacer(),
+            // ==========================================================
+            // VIEW MY BOOKINGS BUTTON
+            // ==========================================================
 
-              // ==================================================
-              // DONE BUTTON
-              // ==================================================
+            Container(
+              width: double.infinity,
 
-              SizedBox(
-                width: double.infinity,
-                height: 56,
+              padding:
+                  const EdgeInsets.fromLTRB(
+                20,
+                10,
+                20,
+                17,
+              ),
+
+              color: Colors.white,
+
+              child: SizedBox(
+                height: 53,
 
                 child: ElevatedButton(
-   onPressed: () {
-  Navigator.pushAndRemoveUntil(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const MyBookingsScreen(),
-    ),
-    (route) => false,
-  );
-},
+                  onPressed: () {
+                    Navigator.pushAndRemoveUntil(
+                      context,
+
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const MyBookingsScreen(),
+                      ),
+
+                      (route) => false,
+                    );
+                  },
 
                   style:
                       ElevatedButton.styleFrom(
-                    backgroundColor:
-                        const Color(
-                            0xFFEF0038),
+                    backgroundColor: red,
 
                     foregroundColor:
                         Colors.white,
@@ -194,101 +640,120 @@ class BookingConfirmedScreen extends StatelessWidget {
                         RoundedRectangleBorder(
                       borderRadius:
                           BorderRadius.circular(
-                        15,
+                        14,
                       ),
                     ),
                   ),
 
                   child: const Text(
-                    'Done',
+                    'View My Bookings',
+
                     style: TextStyle(
-                      fontSize: 16,
+                      fontSize: 15,
                       fontWeight:
                           FontWeight.w700,
                     ),
                   ),
                 ),
               ),
-
-              const SizedBox(
-                  height: 12),
-
-              const Text(
-                'You can view your booking details later.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color:
-                      Color(0xFF888888),
-                ),
-              ),
-
-              const SizedBox(
-                  height: 18),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
+}
 
-  // ============================================================
-  // INFO ROW
-  // ============================================================
+// =================================================================
+// INFO ROW
+// =================================================================
 
-  Widget _infoRow(
-    String title,
-    String value, {
-    bool isLast = false,
-  }) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(
-        vertical: 12,
-      ),
+class _InfoRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
 
-      decoration: BoxDecoration(
-        border: isLast
-            ? null
-            : const Border(
-                bottom: BorderSide(
+  const _InfoRow({
+    required this.icon,
+    required this.title,
+    required this.value,
+  });
+
+  @override
+  Widget build(
+    BuildContext context,
+  ) {
+    return Row(
+      children: [
+        Container(
+          width: 38,
+          height: 38,
+
+          decoration:
+              BoxDecoration(
+            color:
+                const Color(0xFFF5F5F6),
+
+            borderRadius:
+                BorderRadius.circular(
+              11,
+            ),
+          ),
+
+          child: Icon(
+            icon,
+            color:
+                const Color(0xFF555555),
+            size: 19,
+          ),
+        ),
+
+        const SizedBox(
+          width: 11,
+        ),
+
+        Expanded(
+          child: Column(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+
+            children: [
+              Text(
+                title,
+
+                style:
+                    const TextStyle(
+                  fontSize: 10,
                   color:
-                      Color(0xFFE5E5E5),
+                      Color(0xFF999999),
                 ),
               ),
-      ),
 
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              style:
-                  const TextStyle(
-                fontSize: 13,
-                color:
-                    Color(0xFF777777),
+              const SizedBox(
+                height: 3,
               ),
-            ),
-          ),
 
-          Flexible(
-            child: Text(
-              value,
-              textAlign:
-                  TextAlign.right,
+              Text(
+                value,
 
-              style:
-                  const TextStyle(
-                fontSize: 14,
-                fontWeight:
-                    FontWeight.w600,
-                color:
-                    Color(0xFF171717),
+                maxLines: 2,
+
+                overflow:
+                    TextOverflow.ellipsis,
+
+                style:
+                    const TextStyle(
+                  fontSize: 13,
+                  fontWeight:
+                      FontWeight.w600,
+                  color:
+                      Color(0xFF171717),
+                ),
               ),
-            ),
+            ],
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
