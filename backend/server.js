@@ -32,6 +32,44 @@ pool.on("error", (error) => {
 });
 
 // ============================================================
+// HELPER — GET USER BY FIREBASE UID
+// ============================================================
+
+async function getUserByFirebaseUid(firebaseUid, db = pool) {
+  const result = await db.query(
+    `
+      SELECT
+        id,
+        firebase_uid,
+        full_name,
+        phone_number,
+        email
+      FROM users
+      WHERE firebase_uid = $1
+      LIMIT 1
+    `,
+    [firebaseUid]
+  );
+
+  return result.rows[0] || null;
+}
+
+// ============================================================
+// HELPER — FORMAT VEHICLE
+// ============================================================
+
+function formatVehicle(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    registrationNumber: row.registration_number || "",
+    carModel: row.car_model || "",
+    isPrimary: Boolean(row.is_primary),
+    createdAt: row.created_at,
+  };
+}
+
+// ============================================================
 // HEALTH CHECK
 // ============================================================
 
@@ -41,8 +79,7 @@ app.get("/api/health", async (req, res) => {
 
     res.json({
       success: true,
-      message:
-        "QuickPark backend is connected to PostgreSQL",
+      message: "QuickPark backend is connected to PostgreSQL",
       time: result.rows[0].now,
     });
   } catch (error) {
@@ -51,248 +88,852 @@ app.get("/api/health", async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Database connection failed",
+      error: error.message,
     });
   }
 });
 
 // ============================================================
 // GET PROFILE
+// IMPORTANT:
+// Returns profile + ALL vehicles
 // ============================================================
 
-app.get(
-  "/api/profile/:firebaseUid",
-  async (req, res) => {
-    const { firebaseUid } = req.params;
+app.get("/api/profile/:firebaseUid", async (req, res) => {
+  const { firebaseUid } = req.params;
 
-    try {
-      const result = await pool.query(
-        `
+  if (!firebaseUid) {
+    return res.status(400).json({
+      success: false,
+      message: "Firebase UID is required",
+    });
+  }
+
+  try {
+    // ----------------------------------------------------------
+    // GET USER
+    // ----------------------------------------------------------
+
+    const userResult = await pool.query(
+      `
         SELECT
-          u.id,
-          u.firebase_uid,
-          u.full_name,
-          u.phone_number,
-          u.email,
-
-          v.id AS vehicle_id,
-          v.registration_number,
-          v.car_model
-
-        FROM users u
-
-        LEFT JOIN vehicles v
-          ON v.user_id = u.id
-
-        WHERE u.firebase_uid = $1
-
+          id,
+          firebase_uid,
+          full_name,
+          phone_number,
+          email
+        FROM users
+        WHERE firebase_uid = $1
         LIMIT 1
-        `,
-        [firebaseUid]
-      );
+      `,
+      [firebaseUid]
+    );
 
-      if (result.rows.length === 0) {
-        return res.json({
-          success: true,
-          profileExists: false,
-          profile: null,
-        });
-      }
-
-      const row = result.rows[0];
-
-      res.json({
+    if (userResult.rows.length === 0) {
+      return res.json({
         success: true,
-        profileExists: true,
-
-        profile: {
-          userId: row.id,
-          name: row.full_name || "",
-          phoneNumber:
-            row.phone_number || "",
-          email: row.email || "",
-
-          vehicleId:
-            row.vehicle_id || null,
-
-          carNumber:
-            row.registration_number || "",
-
-          carModel:
-            row.car_model || "",
-        },
-      });
-    } catch (error) {
-      console.error(
-        "Get profile error:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        message:
-          "Unable to load profile",
+        profileExists: false,
+        profile: null,
+        vehicles: [],
       });
     }
+
+    const user = userResult.rows[0];
+
+    // ----------------------------------------------------------
+    // GET ALL VEHICLES
+    // ----------------------------------------------------------
+
+    const vehiclesResult = await pool.query(
+      `
+        SELECT
+          id,
+          user_id,
+          registration_number,
+          car_model,
+          is_primary,
+          created_at
+        FROM vehicles
+        WHERE user_id = $1
+        ORDER BY is_primary DESC, id ASC
+      `,
+      [user.id]
+    );
+
+    const vehicles = vehiclesResult.rows.map(formatVehicle);
+
+    // ----------------------------------------------------------
+    // PRIMARY VEHICLE
+    // ----------------------------------------------------------
+
+    const primaryVehicle =
+      vehicles.find((vehicle) => vehicle.isPrimary) ||
+      vehicles[0] ||
+      null;
+
+    // ----------------------------------------------------------
+    // RESPONSE
+    // ----------------------------------------------------------
+
+    return res.json({
+      success: true,
+      profileExists: true,
+
+      profile: {
+        userId: user.id,
+        firebaseUid: user.firebase_uid,
+        name: user.full_name || "",
+        phoneNumber: user.phone_number || "",
+        email: user.email || "",
+
+        vehicleId: primaryVehicle
+          ? primaryVehicle.id
+          : null,
+
+        carNumber: primaryVehicle
+          ? primaryVehicle.registrationNumber
+          : "",
+
+        carModel: primaryVehicle
+          ? primaryVehicle.carModel
+          : "",
+
+        isPrimary: primaryVehicle
+          ? primaryVehicle.isPrimary
+          : false,
+      },
+
+      vehicles: vehicles,
+    });
+  } catch (error) {
+    console.error("Get profile error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to load profile",
+      error: error.message,
+    });
   }
-);
+});
 
 // ============================================================
 // SAVE / UPDATE PROFILE
 // ============================================================
 
-app.post(
-  "/api/profile",
-  async (req, res) => {
-    const {
-      firebaseUid,
-      name,
-      phoneNumber,
-      email,
-      carNumber,
-      carModel,
-    } = req.body;
+app.post("/api/profile", async (req, res) => {
+  const {
+    firebaseUid,
+    name,
+    phoneNumber,
+    email,
+    carNumber,
+    carModel,
+  } = req.body;
 
-    if (!firebaseUid) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Firebase UID is required",
-      });
-    }
+  if (!firebaseUid) {
+    return res.status(400).json({
+      success: false,
+      message: "Firebase UID is required",
+    });
+  }
 
-    if (
-      !name ||
-      !phoneNumber ||
-      !carNumber ||
-      !carModel
-    ) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "All profile fields are required",
-      });
-    }
+  if (!name || !phoneNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "Name and phone number are required",
+    });
+  }
 
-    const client =
-      await pool.connect();
+  const client = await pool.connect();
 
-    try {
-      await client.query("BEGIN");
+  try {
+    await client.query("BEGIN");
 
-      // ======================================================
-      // USER
-      // ======================================================
+    // ----------------------------------------------------------
+    // SAVE USER
+    // ----------------------------------------------------------
 
-      const userResult =
-        await client.query(
-          `
-          INSERT INTO users (
-            firebase_uid,
-            full_name,
-            phone_number,
-            email
-          )
+    const userResult = await client.query(
+      `
+        INSERT INTO users (
+          firebase_uid,
+          full_name,
+          phone_number,
+          email
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4
+        )
 
-          VALUES (
-            $1,
-            $2,
-            $3,
-            $4
-          )
+        ON CONFLICT (firebase_uid)
 
-          ON CONFLICT (firebase_uid)
+        DO UPDATE SET
+          full_name = EXCLUDED.full_name,
+          phone_number = EXCLUDED.phone_number,
+          email = EXCLUDED.email,
+          updated_at = CURRENT_TIMESTAMP
 
-          DO UPDATE SET
-            full_name =
-              EXCLUDED.full_name,
+        RETURNING id
+      `,
+      [
+        firebaseUid,
+        name.trim(),
+        phoneNumber.trim(),
+        email ? email.trim() : "",
+      ]
+    );
 
-            phone_number =
-              EXCLUDED.phone_number,
+    const userId = userResult.rows[0].id;
 
-            email =
-              EXCLUDED.email,
+    // ----------------------------------------------------------
+    // OPTIONAL FIRST VEHICLE
+    // ----------------------------------------------------------
 
-            updated_at =
-              CURRENT_TIMESTAMP
-
-          RETURNING id
-          `,
-          [
-            firebaseUid,
-            name.trim(),
-            phoneNumber.trim(),
-            email
-                ? email.trim()
-                : "",
-          ]
-        );
-
-      const userId =
-        userResult.rows[0].id;
-
-      // ======================================================
-      // VEHICLE
-      // ======================================================
-
-      const vehicleResult =
-        await client.query(
-          `
+    if (carNumber && carModel) {
+      const vehicleResult = await client.query(
+        `
           SELECT id
           FROM vehicles
           WHERE user_id = $1
+          ORDER BY is_primary DESC, id ASC
           LIMIT 1
-          `,
-          [userId]
-        );
+        `,
+        [userId]
+      );
 
-      if (
-        vehicleResult.rows.length >
-        0
-      ) {
+      if (vehicleResult.rows.length > 0) {
         await client.query(
           `
-          UPDATE vehicles
-
-          SET
-            registration_number = $1,
-            car_model = $2
-
-          WHERE user_id = $3
+            UPDATE vehicles
+            SET
+              registration_number = $1,
+              car_model = $2
+            WHERE id = $3
           `,
           [
-            carNumber
-                .trim()
-                .toUpperCase(),
-
+            carNumber.trim().toUpperCase(),
             carModel.trim(),
-
-            userId,
+            vehicleResult.rows[0].id,
           ]
         );
       } else {
         await client.query(
           `
-          INSERT INTO vehicles (
-            user_id,
-            registration_number,
-            car_model
-          )
-
-          VALUES (
-            $1,
-            $2,
-            $3
-          )
+            INSERT INTO vehicles (
+              user_id,
+              registration_number,
+              car_model,
+              is_primary
+            )
+            VALUES (
+              $1,
+              $2,
+              $3,
+              TRUE
+            )
           `,
           [
             userId,
-
-            carNumber
-                .trim()
-                .toUpperCase(),
-
+            carNumber.trim().toUpperCase(),
             carModel.trim(),
           ]
+        );
+      }
+    }
+
+    await client.query("COMMIT");
+
+    res.json({
+      success: true,
+      message: "Profile saved successfully",
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    console.error("Save profile error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to save profile",
+      error: error.message,
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================
+// GET ALL VEHICLES
+// ============================================================
+
+app.get("/api/vehicles/:firebaseUid", async (req, res) => {
+  const { firebaseUid } = req.params;
+
+  if (!firebaseUid) {
+    return res.status(400).json({
+      success: false,
+      message: "Firebase UID is required",
+    });
+  }
+
+  try {
+    const user = await getUserByFirebaseUid(firebaseUid);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User profile not found",
+      });
+    }
+
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          user_id,
+          registration_number,
+          car_model,
+          is_primary,
+          created_at
+        FROM vehicles
+        WHERE user_id = $1
+        ORDER BY is_primary DESC, id ASC
+      `,
+      [user.id]
+    );
+
+    res.json({
+      success: true,
+      vehicles: result.rows.map(formatVehicle),
+    });
+  } catch (error) {
+    console.error("Get vehicles error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to load vehicles",
+      error: error.message,
+    });
+  }
+});
+
+// ============================================================
+// ADD VEHICLE
+// ============================================================
+
+app.post("/api/vehicles", async (req, res) => {
+  const {
+    firebaseUid,
+    registrationNumber,
+    carModel,
+  } = req.body;
+
+  if (!firebaseUid) {
+    return res.status(400).json({
+      success: false,
+      message: "Firebase UID is required",
+    });
+  }
+
+  if (!registrationNumber || !carModel) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Registration number and car model are required",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const user = await getUserByFirebaseUid(
+      firebaseUid,
+      client
+    );
+
+    if (!user) {
+      await client.query("ROLLBACK");
+
+      return res.status(404).json({
+        success: false,
+        message: "User profile not found",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // DUPLICATE VEHICLE CHECK
+    // ----------------------------------------------------------
+
+    const duplicate = await client.query(
+      `
+        SELECT id
+        FROM vehicles
+        WHERE user_id = $1
+          AND UPPER(registration_number) = UPPER($2)
+        LIMIT 1
+      `,
+      [
+        user.id,
+        registrationNumber.trim(),
+      ]
+    );
+
+    if (duplicate.rows.length > 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(409).json({
+        success: false,
+        message: "This vehicle is already added",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // CHECK EXISTING VEHICLES
+    // ----------------------------------------------------------
+
+    const countResult = await client.query(
+      `
+        SELECT COUNT(*)::int AS count
+        FROM vehicles
+        WHERE user_id = $1
+      `,
+      [user.id]
+    );
+
+    const isFirstVehicle =
+      countResult.rows[0].count === 0;
+
+    // ----------------------------------------------------------
+    // INSERT VEHICLE
+    // ----------------------------------------------------------
+
+    const result = await client.query(
+      `
+        INSERT INTO vehicles (
+          user_id,
+          registration_number,
+          car_model,
+          is_primary
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4
+        )
+        RETURNING
+          id,
+          user_id,
+          registration_number,
+          car_model,
+          is_primary,
+          created_at
+      `,
+      [
+        user.id,
+        registrationNumber.trim().toUpperCase(),
+        carModel.trim(),
+        isFirstVehicle,
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    res.status(201).json({
+      success: true,
+      message: "Vehicle added successfully",
+      vehicle: formatVehicle(result.rows[0]),
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
+
+    console.error("Add vehicle error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to add vehicle",
+      error: error.message,
+    });
+  } finally {
+    client.release();
+  }
+});
+
+// ============================================================
+// EDIT VEHICLE
+// ============================================================
+
+app.put("/api/vehicles/:vehicleId", async (req, res) => {
+  const vehicleId = Number(req.params.vehicleId);
+
+  const {
+    firebaseUid,
+    registrationNumber,
+    carModel,
+  } = req.body;
+
+  if (!Number.isInteger(vehicleId)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid vehicle ID",
+    });
+  }
+
+  if (!firebaseUid) {
+    return res.status(400).json({
+      success: false,
+      message: "Firebase UID is required",
+    });
+  }
+
+  if (!registrationNumber || !carModel) {
+    return res.status(400).json({
+      success: false,
+      message:
+        "Registration number and car model are required",
+    });
+  }
+
+  try {
+    const user = await getUserByFirebaseUid(firebaseUid);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User profile not found",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // DUPLICATE REGISTRATION CHECK
+    // ----------------------------------------------------------
+
+    const duplicate = await pool.query(
+      `
+        SELECT id
+        FROM vehicles
+        WHERE user_id = $1
+          AND UPPER(registration_number) = UPPER($2)
+          AND id <> $3
+        LIMIT 1
+      `,
+      [
+        user.id,
+        registrationNumber.trim(),
+        vehicleId,
+      ]
+    );
+
+    if (duplicate.rows.length > 0) {
+      return res.status(409).json({
+        success: false,
+        message:
+          "Another vehicle already uses this registration number",
+      });
+    }
+
+    // ----------------------------------------------------------
+    // UPDATE
+    // ----------------------------------------------------------
+
+    const result = await pool.query(
+      `
+        UPDATE vehicles
+        SET
+          registration_number = $1,
+          car_model = $2
+        WHERE id = $3
+          AND user_id = $4
+        RETURNING
+          id,
+          user_id,
+          registration_number,
+          car_model,
+          is_primary,
+          created_at
+      `,
+      [
+        registrationNumber.trim().toUpperCase(),
+        carModel.trim(),
+        vehicleId,
+        user.id,
+      ]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Vehicle not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: "Vehicle updated successfully",
+      vehicle: formatVehicle(result.rows[0]),
+    });
+  } catch (error) {
+    console.error("Edit vehicle error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Unable to edit vehicle",
+      error: error.message,
+    });
+  }
+});
+
+// ============================================================
+// SET PRIMARY VEHICLE
+// ============================================================
+
+app.patch(
+  "/api/vehicles/:vehicleId/primary",
+  async (req, res) => {
+    const vehicleId = Number(req.params.vehicleId);
+    const { firebaseUid } = req.body;
+
+    if (!Number.isInteger(vehicleId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid vehicle ID",
+      });
+    }
+
+    if (!firebaseUid) {
+      return res.status(400).json({
+        success: false,
+        message: "Firebase UID is required",
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const user = await getUserByFirebaseUid(
+        firebaseUid,
+        client
+      );
+
+      if (!user) {
+        await client.query("ROLLBACK");
+
+        return res.status(404).json({
+          success: false,
+          message: "User profile not found",
+        });
+      }
+
+      // --------------------------------------------------------
+      // CHECK VEHICLE BELONGS TO USER
+      // --------------------------------------------------------
+
+      const vehicleCheck = await client.query(
+        `
+          SELECT
+            id,
+            registration_number,
+            car_model
+          FROM vehicles
+          WHERE id = $1
+            AND user_id = $2
+          LIMIT 1
+        `,
+        [
+          vehicleId,
+          user.id,
+        ]
+      );
+
+      if (vehicleCheck.rows.length === 0) {
+        await client.query("ROLLBACK");
+
+        return res.status(404).json({
+          success: false,
+          message: "Vehicle not found",
+        });
+      }
+
+      // --------------------------------------------------------
+      // REMOVE PRIMARY FROM ALL VEHICLES
+      // --------------------------------------------------------
+
+      await client.query(
+        `
+          UPDATE vehicles
+          SET is_primary = FALSE
+          WHERE user_id = $1
+        `,
+        [user.id]
+      );
+
+      // --------------------------------------------------------
+      // MAKE SELECTED VEHICLE PRIMARY
+      // --------------------------------------------------------
+
+      const result = await client.query(
+        `
+          UPDATE vehicles
+          SET is_primary = TRUE
+          WHERE id = $1
+            AND user_id = $2
+          RETURNING
+            id,
+            user_id,
+            registration_number,
+            car_model,
+            is_primary,
+            created_at
+        `,
+        [
+          vehicleId,
+          user.id,
+        ]
+      );
+
+      await client.query("COMMIT");
+
+      res.json({
+        success: true,
+        message: "Primary vehicle updated successfully",
+        vehicle: formatVehicle(result.rows[0]),
+      });
+    } catch (error) {
+      await client.query("ROLLBACK");
+
+      console.error(
+        "Set primary vehicle error:",
+        error
+      );
+
+      res.status(500).json({
+        success: false,
+        message: "Unable to set primary vehicle",
+        error: error.message,
+      });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+// ============================================================
+// REMOVE VEHICLE
+// ============================================================
+
+app.delete(
+  "/api/vehicles/:vehicleId",
+  async (req, res) => {
+    const vehicleId = Number(req.params.vehicleId);
+    const { firebaseUid } = req.body;
+
+    if (!Number.isInteger(vehicleId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid vehicle ID",
+      });
+    }
+
+    if (!firebaseUid) {
+      return res.status(400).json({
+        success: false,
+        message: "Firebase UID is required",
+      });
+    }
+
+    const client = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const user = await getUserByFirebaseUid(
+        firebaseUid,
+        client
+      );
+
+      if (!user) {
+        await client.query("ROLLBACK");
+
+        return res.status(404).json({
+          success: false,
+          message: "User profile not found",
+        });
+      }
+
+      // --------------------------------------------------------
+      // GET VEHICLE
+      // --------------------------------------------------------
+
+      const vehicleResult = await client.query(
+        `
+          SELECT
+            id,
+            is_primary
+          FROM vehicles
+          WHERE id = $1
+            AND user_id = $2
+          FOR UPDATE
+        `,
+        [
+          vehicleId,
+          user.id,
+        ]
+      );
+
+      if (vehicleResult.rows.length === 0) {
+        await client.query("ROLLBACK");
+
+        return res.status(404).json({
+          success: false,
+          message: "Vehicle not found",
+        });
+      }
+
+      const wasPrimary =
+        Boolean(vehicleResult.rows[0].is_primary);
+
+      // --------------------------------------------------------
+      // DELETE VEHICLE
+      // --------------------------------------------------------
+
+      await client.query(
+        `
+          DELETE FROM vehicles
+          WHERE id = $1
+            AND user_id = $2
+        `,
+        [
+          vehicleId,
+          user.id,
+        ]
+      );
+
+      // --------------------------------------------------------
+      // IF PRIMARY WAS DELETED,
+      // MAKE ANOTHER VEHICLE PRIMARY
+      // --------------------------------------------------------
+
+      if (wasPrimary) {
+        await client.query(
+          `
+            UPDATE vehicles
+            SET is_primary = TRUE
+            WHERE id = (
+              SELECT id
+              FROM vehicles
+              WHERE user_id = $1
+              ORDER BY id ASC
+              LIMIT 1
+            )
+          `,
+          [user.id]
         );
       }
 
@@ -300,23 +941,20 @@ app.post(
 
       res.json({
         success: true,
-        message:
-          "Profile saved successfully",
+        message: "Vehicle removed successfully",
       });
     } catch (error) {
-      await client.query(
-        "ROLLBACK"
-      );
+      await client.query("ROLLBACK");
 
       console.error(
-        "Save profile error:",
+        "Remove vehicle error:",
         error
       );
 
       res.status(500).json({
         success: false,
-        message:
-          "Unable to save profile",
+        message: "Unable to remove vehicle",
+        error: error.message,
       });
     } finally {
       client.release();
@@ -328,503 +966,431 @@ app.post(
 // GET AVAILABLE VALETS
 // ============================================================
 
-app.get(
-  "/api/valets",
-  async (req, res) => {
-    try {
-      const result =
-        await pool.query(
-          `
-          SELECT
-            id,
-            name,
-            rating,
-            distance_km,
-            estimated_arrival_minutes,
-            available_spots,
-            starting_price,
-            is_available
+app.get("/api/valets", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          name,
+          rating,
+          distance_km,
+          estimated_arrival_minutes,
+          available_spots,
+          starting_price,
+          is_available
+        FROM valets
+        WHERE is_available = TRUE
+        ORDER BY
+          distance_km ASC,
+          rating DESC
+      `
+    );
 
-          FROM valets
+    res.json({
+      success: true,
+      valets: result.rows,
+    });
+  } catch (error) {
+    console.error("Get valets error:", error);
 
-          WHERE is_available = TRUE
-
-          ORDER BY
-            distance_km ASC,
-            rating DESC
-          `
-        );
-
-      res.json({
-        success: true,
-        valets: result.rows,
-      });
-    } catch (error) {
-      console.error(
-        "Get valets error:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        message:
-          "Unable to load valets",
-      });
-    }
+    res.status(500).json({
+      success: false,
+      message: "Unable to load valets",
+      error: error.message,
+    });
   }
-);
+});
 
 // ============================================================
 // GET ALL VALETS
 // ============================================================
 
-app.get(
-  "/api/valets/all",
-  async (req, res) => {
-    try {
-      const result =
-        await pool.query(
-          `
-          SELECT
-            id,
-            name,
-            rating,
-            distance_km,
-            estimated_arrival_minutes,
-            available_spots,
-            starting_price,
-            is_available
+app.get("/api/valets/all", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `
+        SELECT
+          id,
+          name,
+          rating,
+          distance_km,
+          estimated_arrival_minutes,
+          available_spots,
+          starting_price,
+          is_available
+        FROM valets
+        ORDER BY distance_km ASC
+      `
+    );
 
-          FROM valets
+    res.json({
+      success: true,
+      valets: result.rows,
+    });
+  } catch (error) {
+    console.error("Get all valets error:", error);
 
-          ORDER BY
-            distance_km ASC
-          `
-        );
-
-      res.json({
-        success: true,
-        valets: result.rows,
-      });
-    } catch (error) {
-      console.error(
-        "Get all valets error:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        message:
-          "Unable to load valets",
-      });
-    }
+    res.status(500).json({
+      success: false,
+      message: "Unable to load valets",
+      error: error.message,
+    });
   }
-);
+});
 
 // ============================================================
 // CREATE BOOKING
 // ============================================================
 
-app.post(
-  "/api/bookings",
-  async (req, res) => {
-    const {
-      firebaseUid,
-      valetId,
-      destinationName,
-    } = req.body;
+app.post("/api/bookings", async (req, res) => {
+  const {
+    firebaseUid,
+    valetId,
+    destinationName,
+    vehicleId,
+  } = req.body;
 
-    // ========================================================
-    // VALIDATION
-    // ========================================================
+  if (!firebaseUid) {
+    return res.status(400).json({
+      success: false,
+      message: "Firebase UID is required",
+    });
+  }
 
-    if (!firebaseUid) {
-      return res.status(400).json({
+  if (!valetId) {
+    return res.status(400).json({
+      success: false,
+      message: "Valet ID is required",
+    });
+  }
+
+  if (!destinationName) {
+    return res.status(400).json({
+      success: false,
+      message: "Destination is required",
+    });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // ----------------------------------------------------------
+    // GET USER
+    // ----------------------------------------------------------
+
+    const userResult = await client.query(
+      `
+        SELECT id
+        FROM users
+        WHERE firebase_uid = $1
+        LIMIT 1
+      `,
+      [firebaseUid]
+    );
+
+    if (userResult.rows.length === 0) {
+      await client.query("ROLLBACK");
+
+      return res.status(404).json({
         success: false,
         message:
-          "Firebase UID is required",
+          "User profile not found. Please complete your profile first.",
       });
     }
 
-    if (!valetId) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Valet ID is required",
-      });
-    }
+    const userId = userResult.rows[0].id;
 
-    if (!destinationName) {
-      return res.status(400).json({
-        success: false,
-        message:
-          "Destination is required",
-      });
-    }
+    // ----------------------------------------------------------
+    // GET VEHICLE
+    // ----------------------------------------------------------
 
-    const client =
-      await pool.connect();
+    let vehicleResult;
 
-    try {
-      await client.query("BEGIN");
-
-      // ======================================================
-      // GET USER
-      // ======================================================
-
-      const userResult =
-        await client.query(
-          `
-          SELECT id
-          FROM users
-          WHERE firebase_uid = $1
-          LIMIT 1
-          `,
-          [firebaseUid]
-        );
-
-      if (
-        userResult.rows.length ===
-        0
-      ) {
-        await client.query(
-          "ROLLBACK"
-        );
-
-        return res.status(404).json({
-          success: false,
-          message:
-            "User profile not found. Please complete your profile first.",
-        });
-      }
-
-      const userId =
-        userResult.rows[0].id;
-
-      // ======================================================
-      // GET VEHICLE
-      // ======================================================
-
-      const vehicleResult =
-        await client.query(
-          `
+    if (vehicleId) {
+      vehicleResult = await client.query(
+        `
           SELECT
             id,
             registration_number,
-            car_model
-
+            car_model,
+            is_primary
           FROM vehicles
-
-          WHERE user_id = $1
-
+          WHERE id = $1
+            AND user_id = $2
           LIMIT 1
-          `,
-          [userId]
-        );
-
-      if (
-        vehicleResult.rows.length ===
-        0
-      ) {
-        await client.query(
-          "ROLLBACK"
-        );
-
-        return res.status(400).json({
-          success: false,
-          message:
-            "Vehicle profile not found.",
-        });
-      }
-
-      const vehicleId =
-        vehicleResult.rows[0].id;
-
-      // ======================================================
-      // GET DESTINATION
-      // ======================================================
-
-      const destinationResult =
-        await client.query(
-          `
-          SELECT id, name
-          FROM destinations
-
-          WHERE LOWER(name) =
-                LOWER($1)
-
-          LIMIT 1
-          `,
-          [destinationName.trim()]
-        );
-
-      if (
-        destinationResult.rows
-          .length === 0
-      ) {
-        await client.query(
-          "ROLLBACK"
-        );
-
-        return res.status(404).json({
-          success: false,
-          message:
-            "Destination not found.",
-        });
-      }
-
-      const destinationId =
-        destinationResult
-          .rows[0].id;
-
-      // ======================================================
-      // GET VALET
-      // ======================================================
-
-      const valetResult =
-        await client.query(
-          `
+        `,
+        [
+          vehicleId,
+          userId,
+        ]
+      );
+    } else {
+      vehicleResult = await client.query(
+        `
           SELECT
             id,
-            name,
-            starting_price,
-            available_spots,
-            is_available
+            registration_number,
+            car_model,
+            is_primary
+          FROM vehicles
+          WHERE user_id = $1
+          ORDER BY
+            is_primary DESC,
+            id ASC
+          LIMIT 1
+        `,
+        [userId]
+      );
+    }
 
-          FROM valets
+    if (vehicleResult.rows.length === 0) {
+      await client.query("ROLLBACK");
 
-          WHERE id = $1
+      return res.status(400).json({
+        success: false,
+        message: "Vehicle profile not found.",
+      });
+    }
 
-          FOR UPDATE
-          `,
-          [valetId]
-        );
+    const vehicle = vehicleResult.rows[0];
 
-      if (
-        valetResult.rows.length ===
-        0
-      ) {
-        await client.query(
-          "ROLLBACK"
-        );
+    // ----------------------------------------------------------
+    // GET DESTINATION
+    // ----------------------------------------------------------
 
-        return res.status(404).json({
-          success: false,
-          message:
-            "Valet not found.",
-        });
-      }
+    const destinationResult = await client.query(
+      `
+        SELECT
+          id,
+          name,
+          address
+        FROM destinations
+        WHERE LOWER(name) = LOWER($1)
+        LIMIT 1
+      `,
+      [destinationName.trim()]
+    );
 
-      const valet =
-        valetResult.rows[0];
+    if (destinationResult.rows.length === 0) {
+      await client.query("ROLLBACK");
 
-      // ======================================================
-      // CHECK AVAILABILITY
-      // ======================================================
+      return res.status(404).json({
+        success: false,
+        message: "Destination not found.",
+      });
+    }
 
-      if (!valet.is_available) {
-        await client.query(
-          "ROLLBACK"
-        );
+    const destinationId =
+      destinationResult.rows[0].id;
 
-        return res.status(400).json({
-          success: false,
-          message:
-            "This valet is currently unavailable.",
-        });
-      }
+    // ----------------------------------------------------------
+    // GET VALET
+    // ----------------------------------------------------------
 
-      if (
-        Number(valet.available_spots) <=
-        0
-      ) {
-        await client.query(
-          "ROLLBACK"
-        );
+    const valetResult = await client.query(
+      `
+        SELECT
+          id,
+          name,
+          starting_price,
+          available_spots,
+          is_available
+        FROM valets
+        WHERE id = $1
+        FOR UPDATE
+      `,
+      [valetId]
+    );
 
-        return res.status(400).json({
-          success: false,
-          message:
-            "No parking spots are available.",
-        });
-      }
+    if (valetResult.rows.length === 0) {
+      await client.query("ROLLBACK");
 
-      // ======================================================
-      // GENERATE BOOKING ID
-      // ======================================================
+      return res.status(404).json({
+        success: false,
+        message: "Valet not found.",
+      });
+    }
 
-      const bookingId =
-        crypto
-          .randomUUID()
-          .split("-")
-          .join("")
-          .substring(0, 8)
-          .toUpperCase();
+    const valet = valetResult.rows[0];
 
-      // ======================================================
-      // AMOUNT
-      // ======================================================
+    // ----------------------------------------------------------
+    // CHECK AVAILABILITY
+    // ----------------------------------------------------------
 
-      const amount =
-        Number(valet.starting_price);
+    if (!valet.is_available) {
+      await client.query("ROLLBACK");
 
-      // ======================================================
-      // INSERT BOOKING
-      // ======================================================
+      return res.status(400).json({
+        success: false,
+        message:
+          "This valet is currently unavailable.",
+      });
+    }
 
-      const bookingResult =
-        await client.query(
-          `
-          INSERT INTO bookings (
-            booking_id,
-            user_id,
-            vehicle_id,
-            valet_id,
-            destination_id,
-            amount,
-            status
-          )
+    if (Number(valet.available_spots) <= 0) {
+      await client.query("ROLLBACK");
 
-          VALUES (
-            $1,
-            $2,
-            $3,
-            $4,
-            $5,
-            $6,
-            $7
-          )
+      return res.status(400).json({
+        success: false,
+        message:
+          "No parking spots are available.",
+      });
+    }
 
-          RETURNING
-            id,
-            booking_id,
-            user_id,
-            vehicle_id,
-            valet_id,
-            destination_id,
-            amount,
-            status,
-            created_at,
-            updated_at
-          `,
-          [
-            bookingId,
-            userId,
-            vehicleId,
-            valetId,
-            destinationId,
-            amount,
-            "confirmed",
-          ]
-        );
+    // ----------------------------------------------------------
+    // GENERATE BOOKING ID
+    // ----------------------------------------------------------
 
-      // ======================================================
-      // DECREASE AVAILABLE SPOTS
-      // ======================================================
+    const bookingId = crypto
+      .randomUUID()
+      .replace(/-/g, "")
+      .substring(0, 8)
+      .toUpperCase();
 
-      await client.query(
-        `
+    // ----------------------------------------------------------
+    // AMOUNT
+    // ----------------------------------------------------------
+
+    const amount =
+      Number(valet.starting_price);
+
+    // ----------------------------------------------------------
+    // INSERT BOOKING
+    // ----------------------------------------------------------
+
+    const bookingResult = await client.query(
+      `
+        INSERT INTO bookings (
+          booking_id,
+          user_id,
+          vehicle_id,
+          valet_id,
+          destination_id,
+          amount,
+          status
+        )
+        VALUES (
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $6,
+          $7
+        )
+        RETURNING
+          id,
+          booking_id,
+          user_id,
+          vehicle_id,
+          valet_id,
+          destination_id,
+          amount,
+          status,
+          created_at,
+          updated_at
+      `,
+      [
+        bookingId,
+        userId,
+        vehicle.id,
+        valetId,
+        destinationId,
+        amount,
+        "confirmed",
+      ]
+    );
+
+    // ----------------------------------------------------------
+    // DECREASE AVAILABLE SPOTS
+    // ----------------------------------------------------------
+
+    await client.query(
+      `
         UPDATE valets
-
         SET
           available_spots =
             available_spots - 1
-
         WHERE id = $1
-        `,
-        [valetId]
-      );
+      `,
+      [valetId]
+    );
 
-      // ======================================================
-      // COMMIT
-      // ======================================================
+    await client.query("COMMIT");
 
-      await client.query(
-        "COMMIT"
-      );
+    const booking =
+      bookingResult.rows[0];
 
-      const booking =
-        bookingResult.rows[0];
+    res.status(201).json({
+      success: true,
+      message: "Booking created successfully",
 
-      res.status(201).json({
-        success: true,
+      booking: {
+        id: booking.id,
 
-        message:
-          "Booking created successfully",
+        bookingId:
+          booking.booking_id,
 
-        booking: {
-          id: booking.id,
+        userId:
+          booking.user_id,
 
-          bookingId:
-            booking.booking_id,
+        vehicleId:
+          booking.vehicle_id,
 
-          userId:
-            booking.user_id,
+        valetId:
+          booking.valet_id,
 
-          vehicleId:
-            booking.vehicle_id,
+        destinationId:
+          booking.destination_id,
 
-          valetId:
-            booking.valet_id,
+        amount:
+          booking.amount,
 
-          destinationId:
-            booking.destination_id,
+        status:
+          booking.status,
 
-          amount:
-            booking.amount,
+        valetName:
+          valet.name,
 
-          status:
-            booking.status,
+        destination:
+          destinationResult.rows[0].name,
 
-          valetName:
-            valet.name,
+        carNumber:
+          vehicle.registration_number,
 
-          destination:
-            destinationResult
-              .rows[0].name,
+        carModel:
+          vehicle.car_model,
 
-          carNumber:
-            vehicleResult
-              .rows[0]
-              .registration_number,
+        createdAt:
+          booking.created_at,
 
-          carModel:
-            vehicleResult
-              .rows[0]
-              .car_model,
+        updatedAt:
+          booking.updated_at,
+      },
+    });
+  } catch (error) {
+    await client.query("ROLLBACK");
 
-          createdAt:
-            booking.created_at,
+    console.error(
+      "Create booking error:",
+      error
+    );
 
-          updatedAt:
-            booking.updated_at,
-        },
-      });
-    } catch (error) {
-      await client.query(
-        "ROLLBACK"
-      );
-
-      console.error(
-        "Create booking error:",
-        error
-      );
-
-      res.status(500).json({
-        success: false,
-        message:
-          "Unable to create booking",
-        error:
-          process.env.NODE_ENV ===
-          "development"
-            ? error.message
-            : undefined,
-      });
-    } finally {
-      client.release();
-    }
+    res.status(500).json({
+      success: false,
+      message: "Unable to create booking",
+      error:
+        process.env.NODE_ENV === "development"
+          ? error.message
+          : undefined,
+    });
+  } finally {
+    client.release();
   }
-);
+});
 
 // ============================================================
 // GET USER BOOKINGS
@@ -833,14 +1399,18 @@ app.post(
 app.get(
   "/api/bookings/:firebaseUid",
   async (req, res) => {
-    const {
-      firebaseUid,
-    } = req.params;
+    const { firebaseUid } = req.params;
+
+    if (!firebaseUid) {
+      return res.status(400).json({
+        success: false,
+        message: "Firebase UID is required",
+      });
+    }
 
     try {
-      const result =
-        await pool.query(
-          `
+      const result = await pool.query(
+        `
           SELECT
             b.id,
             b.booking_id,
@@ -849,35 +1419,41 @@ app.get(
             b.created_at,
             b.updated_at,
 
-            v.name AS valet_name,
+            u.firebase_uid,
 
+            v.id AS vehicle_id,
+            v.registration_number,
+            v.car_model,
+
+            va.id AS valet_id,
+            va.name AS valet_name,
+            va.rating AS valet_rating,
+
+            d.id AS destination_id,
             d.name AS destination_name,
-            d.address AS destination_address,
-
-            vh.registration_number,
-            vh.car_model
+            d.address AS destination_address
 
           FROM bookings b
 
           INNER JOIN users u
             ON u.id = b.user_id
 
-          LEFT JOIN valets v
-            ON v.id = b.valet_id
+          LEFT JOIN vehicles v
+            ON v.id = b.vehicle_id
+
+          LEFT JOIN valets va
+            ON va.id = b.valet_id
 
           LEFT JOIN destinations d
             ON d.id = b.destination_id
-
-          LEFT JOIN vehicles vh
-            ON vh.id = b.vehicle_id
 
           WHERE u.firebase_uid = $1
 
           ORDER BY
             b.created_at DESC
-          `,
-          [firebaseUid]
-        );
+        `,
+        [firebaseUid]
+      );
 
       res.json({
         success: true,
@@ -891,8 +1467,8 @@ app.get(
 
       res.status(500).json({
         success: false,
-        message:
-          "Unable to load bookings",
+        message: "Unable to load bookings",
+        error: error.message,
       });
     }
   }
@@ -905,58 +1481,48 @@ app.get(
 app.patch(
   "/api/bookings/:bookingId/cancel",
   async (req, res) => {
-    const {
-      bookingId,
-    } = req.params;
+    const { bookingId } = req.params;
 
-    const client =
-      await pool.connect();
+    const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      const bookingResult =
-        await client.query(
-          `
+      // --------------------------------------------------------
+      // GET BOOKING
+      // --------------------------------------------------------
+
+      const bookingResult = await client.query(
+        `
           SELECT
             id,
             valet_id,
             status
-
           FROM bookings
-
           WHERE booking_id = $1
-
           FOR UPDATE
-          `,
-          [bookingId]
-        );
+        `,
+        [bookingId]
+      );
 
-      if (
-        bookingResult.rows.length ===
-        0
-      ) {
-        await client.query(
-          "ROLLBACK"
-        );
+      if (bookingResult.rows.length === 0) {
+        await client.query("ROLLBACK");
 
         return res.status(404).json({
           success: false,
-          message:
-            "Booking not found",
+          message: "Booking not found",
         });
       }
 
       const booking =
         bookingResult.rows[0];
 
-      if (
-        booking.status !==
-        "confirmed"
-      ) {
-        await client.query(
-          "ROLLBACK"
-        );
+      // --------------------------------------------------------
+      // CHECK STATUS
+      // --------------------------------------------------------
+
+      if (booking.status !== "confirmed") {
+        await client.query("ROLLBACK");
 
         return res.status(400).json({
           success: false,
@@ -965,46 +1531,44 @@ app.patch(
         });
       }
 
+      // --------------------------------------------------------
+      // CANCEL BOOKING
+      // --------------------------------------------------------
+
       await client.query(
         `
-        UPDATE bookings
-
-        SET
-          status = 'cancelled',
-          updated_at =
-            CURRENT_TIMESTAMP
-
-        WHERE id = $1
+          UPDATE bookings
+          SET
+            status = 'cancelled',
+            updated_at = CURRENT_TIMESTAMP
+          WHERE id = $1
         `,
         [booking.id]
       );
 
+      // --------------------------------------------------------
+      // RETURN PARKING SPOT
+      // --------------------------------------------------------
+
       await client.query(
         `
-        UPDATE valets
-
-        SET
-          available_spots =
-            available_spots + 1
-
-        WHERE id = $1
+          UPDATE valets
+          SET
+            available_spots =
+              available_spots + 1
+          WHERE id = $1
         `,
         [booking.valet_id]
       );
 
-      await client.query(
-        "COMMIT"
-      );
+      await client.query("COMMIT");
 
       res.json({
         success: true,
-        message:
-          "Booking cancelled successfully",
+        message: "Booking cancelled successfully",
       });
     } catch (error) {
-      await client.query(
-        "ROLLBACK"
-      );
+      await client.query("ROLLBACK");
 
       console.error(
         "Cancel booking error:",
@@ -1013,86 +1577,14 @@ app.patch(
 
       res.status(500).json({
         success: false,
-        message:
-          "Unable to cancel booking",
+        message: "Unable to cancel booking",
+        error: error.message,
       });
     } finally {
       client.release();
     }
   }
 );
-// ============================================================
-// GET USER BOOKINGS
-// ============================================================
-
-app.get("/api/bookings/:firebaseUid", async (req, res) => {
-  const { firebaseUid } = req.params;
-
-  if (!firebaseUid) {
-    return res.status(400).json({
-      success: false,
-      message: "Firebase UID is required",
-    });
-  }
-
-  try {
-    const result = await pool.query(
-      `
-      SELECT
-        b.id,
-        b.booking_id,
-        b.amount,
-        b.status,
-        b.created_at,
-        b.updated_at,
-
-        u.firebase_uid,
-
-        v.registration_number,
-        v.car_model,
-
-        va.id AS valet_id,
-        va.name AS valet_name,
-        va.rating AS valet_rating,
-
-        d.id AS destination_id,
-        d.name AS destination_name,
-        d.address AS destination_address
-
-      FROM bookings b
-
-      INNER JOIN users u
-        ON u.id = b.user_id
-
-      LEFT JOIN vehicles v
-        ON v.id = b.vehicle_id
-
-      LEFT JOIN valets va
-        ON va.id = b.valet_id
-
-      LEFT JOIN destinations d
-        ON d.id = b.destination_id
-
-      WHERE u.firebase_uid = $1
-
-      ORDER BY b.created_at DESC
-      `,
-      [firebaseUid]
-    );
-
-    res.json({
-      success: true,
-      bookings: result.rows,
-    });
-  } catch (error) {
-    console.error("Get bookings error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Unable to load bookings",
-    });
-  }
-});
 
 // ============================================================
 // START SERVER

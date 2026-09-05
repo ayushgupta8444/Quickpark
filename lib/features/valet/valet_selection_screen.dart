@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../booking/booking_details_screen.dart';
-import '../booking/my_bookings_screen.dart';
-import '../profile/profile_screen.dart';
 
 class ValetSelectionScreen extends StatefulWidget {
   final String destinationName;
@@ -41,9 +39,10 @@ class _ValetSelectionScreenState
 
   bool _isFavorite = false;
 
-  int _selectedBottomIndex = 0;
-
   int _selectedPricingTier = 0;
+
+  // Selected schedule (day + time slot)
+  DateTime? _scheduledDateTime;
 
   // ============================================================
   // INIT
@@ -215,61 +214,6 @@ class _ValetSelectionScreenState
   }
 
   // ============================================================
-  // OPEN PROFILE
-  // ============================================================
-
-  Future<void> _openProfile() async {
-    if (!mounted) return;
-
-    setState(() {
-      _selectedBottomIndex = 3;
-    });
-
-    await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const ProfileScreen(),
-      ),
-    );
-
-    if (!mounted) return;
-
-    setState(() {
-      _selectedBottomIndex = 0;
-    });
-  }
-
-  // ============================================================
-  // OPEN MY BOOKINGS
-  // ============================================================
-
-  Future<void> _openMyBookings() async {
-    if (!mounted) return;
-
-    // Mark Bookings as selected before opening the screen.
-    setState(() {
-      _selectedBottomIndex = 1;
-    });
-
-    debugPrint('Opening MyBookingsScreen');
-
-    await Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (BuildContext context) {
-          return const MyBookingsScreen();
-        },
-      ),
-    );
-
-    // Restore Home as selected when the user comes back.
-    if (!mounted) return;
-
-    setState(() {
-      _selectedBottomIndex = 0;
-    });
-  }
-
-  // ============================================================
   // BUILD
   // ============================================================
 
@@ -338,14 +282,6 @@ class _ValetSelectionScreenState
                 _buildStaffSection(),
 
                 const SizedBox(
-                  height: 15,
-                ),
-
-                _buildBookingBar(
-                  valet,
-                ),
-
-                const SizedBox(
                   height: 18,
                 ),
               ],
@@ -353,7 +289,10 @@ class _ValetSelectionScreenState
           ),
         ),
 
-        _buildBottomNavigation(),
+        SafeArea(
+          top: false,
+          child: _buildBookingBar(valet),
+        ),
       ],
     );
   }
@@ -395,7 +334,7 @@ class _ValetSelectionScreenState
 
               style:
                   TextStyle(
-                fontSize: 17,
+                fontSize: 21,
                 fontWeight:
                     FontWeight.w700,
                 color:
@@ -577,7 +516,7 @@ class _ValetSelectionScreenState
 
                     style:
                         TextStyle(
-                      fontSize: 10,
+                      fontSize: 14,
                       fontWeight:
                           FontWeight.w700,
                       color:
@@ -634,7 +573,7 @@ class _ValetSelectionScreenState
 
             style:
                 const TextStyle(
-              fontSize: 19,
+              fontSize: 23,
               fontWeight:
                   FontWeight.w800,
               color:
@@ -653,7 +592,7 @@ class _ValetSelectionScreenState
 
             style:
                 TextStyle(
-              fontSize: 10.5,
+              fontSize: 14.5,
               height: 1.35,
               color:
                   Color(0xFF777777),
@@ -682,7 +621,7 @@ class _ValetSelectionScreenState
 
                 style:
                     const TextStyle(
-                  fontSize: 11,
+                  fontSize: 15,
                   fontWeight:
                       FontWeight.w700,
                   color:
@@ -699,7 +638,7 @@ class _ValetSelectionScreenState
 
                 style:
                     TextStyle(
-                  fontSize: 10,
+                  fontSize: 14,
                   color:
                       Color(0xFF777777),
                 ),
@@ -725,7 +664,7 @@ class _ValetSelectionScreenState
 
                 style:
                     TextStyle(
-                  fontSize: 10.5,
+                  fontSize: 14.5,
                   fontWeight:
                       FontWeight.w700,
                   color:
@@ -769,7 +708,7 @@ class _ValetSelectionScreenState
 
             style:
                 TextStyle(
-              fontSize: 12,
+              fontSize: 16,
               fontWeight:
                   FontWeight.w700,
               color:
@@ -893,7 +832,7 @@ class _ValetSelectionScreenState
 
             style:
                 TextStyle(
-              fontSize: 12,
+              fontSize: 16,
               fontWeight:
                   FontWeight.w700,
               color:
@@ -949,9 +888,9 @@ class _ValetSelectionScreenState
       padding:
           const EdgeInsets.fromLTRB(
         15,
-        2,
+        10,
         15,
-        2,
+        10,
       ),
 
       child: Row(
@@ -994,7 +933,7 @@ class _ValetSelectionScreenState
 
                   style:
                       TextStyle(
-                    fontSize: 13,
+                    fontSize: 17,
                     fontWeight:
                         FontWeight.w700,
                   ),
@@ -1070,17 +1009,33 @@ class _ValetSelectionScreenState
   // ============================================================
 
   Future<void> _showCalendar() async {
-    final DateTime now =
-        DateTime.now();
+    final DateTime now = DateTime.now();
 
-    await showDatePicker(
+    // ----------------------------------------------------------
+    // STEP 1: SELECT DAY
+    // ----------------------------------------------------------
+
+    final DateTime? selectedDate = await showDatePicker(
       context: context,
 
       initialDate:
-          now,
+          _scheduledDateTime != null &&
+                  !_scheduledDateTime!.isBefore(
+                    DateTime(
+                      now.year,
+                      now.month,
+                      now.day,
+                    ),
+                  )
+              ? _scheduledDateTime!
+              : now,
 
       firstDate:
-          now,
+          DateTime(
+        now.year,
+        now.month,
+        now.day,
+      ),
 
       lastDate:
           now.add(
@@ -1088,6 +1043,15 @@ class _ValetSelectionScreenState
           days: 90,
         ),
       ),
+
+      helpText:
+          'Select date',
+
+      cancelText:
+          'Cancel',
+
+      confirmText:
+          'Next',
 
       builder:
           (
@@ -1113,142 +1077,314 @@ class _ValetSelectionScreenState
         );
       },
     );
+
+    if (selectedDate == null ||
+        !mounted) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // STEP 2: SELECT TIME SLOT
+    // ----------------------------------------------------------
+
+    final List<TimeOfDay> timeSlots = [];
+
+    for (int hour = 10;
+        hour <= 23;
+        hour++) {
+      for (int minute = 0;
+          minute < 60;
+          minute += 30) {
+        if (hour == 23 &&
+            minute > 0) {
+          continue;
+        }
+
+        timeSlots.add(
+          TimeOfDay(
+            hour: hour,
+            minute: minute,
+          ),
+        );
+      }
+    }
+
+    TimeOfDay? selectedTime;
+
+    if (_scheduledDateTime != null &&
+        selectedDate.year ==
+            _scheduledDateTime!.year &&
+        selectedDate.month ==
+            _scheduledDateTime!.month &&
+        selectedDate.day ==
+            _scheduledDateTime!.day) {
+      selectedTime =
+          TimeOfDay.fromDateTime(
+        _scheduledDateTime!,
+      );
+    }
+
+    final TimeOfDay? pickedTime =
+        await showDialog<TimeOfDay>(
+      context: context,
+
+      builder:
+          (dialogContext) {
+        TimeOfDay? tempSelected =
+            selectedTime;
+
+        return StatefulBuilder(
+          builder:
+              (
+            context,
+            setDialogState,
+          ) {
+            return AlertDialog(
+              title:
+                  const Text(
+                'Select time slot',
+                style:
+                    TextStyle(
+                  fontWeight:
+                      FontWeight.w700,
+                ),
+              ),
+
+              content:
+                  SizedBox(
+                width:
+                    double.maxFinite,
+
+                child:
+                    GridView.builder(
+                  shrinkWrap:
+                      true,
+
+                  itemCount:
+                      timeSlots.length,
+
+                  gridDelegate:
+                      const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 3,
+                    crossAxisSpacing: 8,
+                    mainAxisSpacing: 8,
+                    childAspectRatio: 2.2,
+                  ),
+
+                  itemBuilder:
+                      (
+                    context,
+                    index,
+                  ) {
+                    final TimeOfDay slot =
+                        timeSlots[index];
+
+                    final bool isSelected =
+                        tempSelected != null &&
+                        tempSelected!.hour ==
+                            slot.hour &&
+                        tempSelected!.minute ==
+                            slot.minute;
+
+                    return InkWell(
+                      borderRadius:
+                          BorderRadius.circular(
+                        8,
+                      ),
+
+                      onTap: () {
+                        setDialogState(() {
+                          tempSelected =
+                              slot;
+                        });
+                      },
+
+                      child:
+                          Container(
+                        alignment:
+                            Alignment.center,
+
+                        decoration:
+                            BoxDecoration(
+                          color:
+                              isSelected
+                                  ? const Color(
+                                      0xFFFFE9EE,
+                                    )
+                                  : const Color(
+                                      0xFFF5F5F6,
+                                    ),
+
+                          borderRadius:
+                              BorderRadius.circular(
+                            8,
+                          ),
+
+                          border:
+                              Border.all(
+                            color:
+                                isSelected
+                                    ? const Color(
+                                        0xFFEF0038,
+                                      )
+                                    : Colors.transparent,
+
+                            width:
+                                1.2,
+                          ),
+                        ),
+
+                        child:
+                            Text(
+                          slot.format(
+                            context,
+                          ),
+
+                          style:
+                              TextStyle(
+                            fontSize: 19.6,
+
+                            fontWeight:
+                                isSelected
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+
+                            color:
+                                isSelected
+                                    ? const Color(
+                                        0xFFEF0038,
+                                      )
+                                    : const Color(
+                                        0xFF333333,
+                                      ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(
+                      dialogContext,
+                    );
+                  },
+
+                  child:
+                      const Text(
+                    'Cancel',
+                    style:
+                        TextStyle(
+                      color:
+                          Color(
+                        0xFFEF0038,
+                      ),
+                    ),
+                  ),
+                ),
+
+                TextButton(
+                  onPressed:
+                      tempSelected == null
+                          ? null
+                          : () {
+                              Navigator.pop(
+                                dialogContext,
+                                tempSelected,
+                              );
+                            },
+
+                  child:
+                      const Text(
+                    'Done',
+                    style:
+                        TextStyle(
+                      color:
+                          Color(
+                        0xFFEF0038,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (pickedTime == null ||
+        !mounted) {
+      return;
+    }
+
+    // ----------------------------------------------------------
+    // SAVE DATE + TIME SLOT
+    // ----------------------------------------------------------
+
+    final DateTime scheduledDateTime =
+        DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+
+    setState(() {
+      _scheduledDateTime =
+          scheduledDateTime;
+    });
+
+    _showMessage(
+      'Scheduled for ${_formatScheduledDate(scheduledDateTime)}',
+    );
   }
 
-  // ============================================================
-  // BOTTOM NAVIGATION
-  // ============================================================
+  String _formatScheduledDate(
+    DateTime dateTime,
+  ) {
+    const List<String> weekdays = [
+      'Mon',
+      'Tue',
+      'Wed',
+      'Thu',
+      'Fri',
+      'Sat',
+      'Sun',
+    ];
 
-  Widget _buildBottomNavigation() {
-    return Container(
-      height: 72,
+    final String day =
+        weekdays[dateTime.weekday - 1];
 
-      decoration:
-          const BoxDecoration(
-        color:
-            Colors.white,
+    final String time =
+        TimeOfDay.fromDateTime(
+      dateTime,
+    ).format(context);
 
-        border:
-            Border(
-          top:
-              BorderSide(
-            color:
-                Color(0xFFE8E8E8),
+    return '$day, ${dateTime.day} ${_monthName(dateTime.month)} at $time';
+  }
 
-            width: 1,
-          ),
-        ),
-      ),
+  String _monthName(int month) {
+    const List<String> months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
 
-      child: Row(
-        mainAxisAlignment:
-            MainAxisAlignment
-                .spaceAround,
-
-        children: [
-          // ======================================================
-          // HOME
-          // ======================================================
-
-          _BottomNavItem(
-            icon:
-                Icons.home_outlined,
-
-            activeIcon:
-                Icons.home_rounded,
-
-            label:
-                'Home',
-
-            selected:
-                _selectedBottomIndex ==
-                    0,
-
-            onTap: () {
-              setState(() {
-                _selectedBottomIndex =
-                    0;
-              });
-            },
-          ),
-
-          // ======================================================
-          // BOOKINGS
-          // ======================================================
-
-          _BottomNavItem(
-            icon:
-                Icons.calendar_today_outlined,
-
-            activeIcon:
-                Icons.calendar_today,
-
-            label:
-                'Bookings',
-
-            selected:
-                _selectedBottomIndex ==
-                    1,
-
-            onTap: () {
-              _openMyBookings();
-            }
-          ),
-
-          // ======================================================
-          // ALERTS
-          // ======================================================
-
-          _BottomNavItem(
-            icon:
-                Icons
-                    .notifications_none_outlined,
-
-            activeIcon:
-                Icons.notifications,
-
-            label:
-                'Alerts',
-
-            selected:
-                _selectedBottomIndex ==
-                    2,
-
-            onTap: () {
-              setState(() {
-                _selectedBottomIndex =
-                    2;
-              });
-
-              _showMessage(
-                'Alerts will be available soon.',
-              );
-            },
-          ),
-
-          // ======================================================
-          // PROFILE
-          // ======================================================
-
-          _BottomNavItem(
-            icon:
-                Icons.person_outline,
-
-            activeIcon:
-                Icons.person,
-
-            label:
-                'Profile',
-
-            selected:
-                _selectedBottomIndex ==
-                    3,
-
-            onTap: _openProfile,
-          ),
-        ],
-      ),
-    );
+    return months[month - 1];
   }
 
   // ============================================================
@@ -1333,7 +1469,7 @@ class _ValetSelectionScreenState
 
               style:
                   const TextStyle(
-                fontSize: 15,
+                fontSize: 19,
                 color:
                     Color(0xFF666666),
               ),
@@ -1415,7 +1551,7 @@ class _ValetSelectionScreenState
 
             style:
                 TextStyle(
-              fontSize: 18,
+              fontSize: 22,
               fontWeight:
                   FontWeight.w600,
               color:
@@ -1436,7 +1572,7 @@ class _ValetSelectionScreenState
 
             style:
                 const TextStyle(
-              fontSize: 12,
+              fontSize: 16,
               color:
                   Color(0xFF888888),
             ),
@@ -1598,7 +1734,7 @@ class _PricingCard
 
               style:
                   TextStyle(
-                fontSize: 9,
+                fontSize: 13,
 
                 color:
                     selected
@@ -1620,7 +1756,7 @@ class _PricingCard
 
               style:
                   TextStyle(
-                fontSize: 16,
+                fontSize: 20,
 
                 fontWeight:
                     FontWeight.w800,
@@ -1751,7 +1887,7 @@ class _StaffCard
 
                   style:
                       const TextStyle(
-                    fontSize: 10.5,
+                    fontSize: 14.5,
 
                     fontWeight:
                         FontWeight.w700,
@@ -1789,7 +1925,7 @@ class _StaffCard
 
                       style:
                           const TextStyle(
-                        fontSize: 8.5,
+                        fontSize: 12.5,
 
                         color:
                             Color(
@@ -1830,7 +1966,7 @@ class _StaffCard
 
               style:
                   TextStyle(
-                fontSize: 7.5,
+                fontSize: 11.5,
 
                 fontWeight:
                     FontWeight.w700,
@@ -1921,7 +2057,7 @@ class _BottomNavItem
 
               style:
                   TextStyle(
-                fontSize: 8.5,
+                fontSize: 12.5,
 
                 fontWeight:
                     selected

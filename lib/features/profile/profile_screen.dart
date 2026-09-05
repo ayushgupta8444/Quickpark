@@ -1,6 +1,8 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -10,6 +12,7 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  static const String baseUrl = 'http://10.0.2.2:3000';
   static const Color red = Color(0xFFEF0038);
   static const Color black = Color(0xFF171717);
   static const Color grey = Color(0xFF737373);
@@ -45,65 +48,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _emailController.text = user.email ?? '';
 
     try {
-      final DocumentReference<Map<String, dynamic>> userRef =
-          FirebaseFirestore.instance.collection('users').doc(user.uid);
-      final DocumentSnapshot<Map<String, dynamic>> snapshot =
-          await userRef.get();
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/profile/${Uri.encodeComponent(user.uid)}'),
+      ).timeout(const Duration(seconds: 10));
 
-      if (!snapshot.exists) {
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-        return;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception('Server returned ${response.statusCode}');
       }
 
-      final Map<String, dynamic> data = snapshot.data() ?? <String, dynamic>{};
+      final Map<String, dynamic> body =
+          Map<String, dynamic>.from(jsonDecode(response.body) as Map);
 
-      final String savedName = (data['name'] ?? '').toString().trim();
-      final String savedEmail = (data['email'] ?? '').toString().trim();
+      if (body['success'] != true) {
+        throw Exception((body['message'] ?? 'Unable to load profile').toString());
+      }
+
+      final Map<String, dynamic>? profile = body['profile'] is Map
+          ? Map<String, dynamic>.from(body['profile'] as Map)
+          : null;
+
+      final String savedName = (profile?['name'] ?? '').toString().trim();
+      final String savedEmail = (profile?['email'] ?? '').toString().trim();
 
       if (savedName.isNotEmpty) _nameController.text = savedName;
       if (savedEmail.isNotEmpty) _emailController.text = savedEmail;
 
       final List<VehicleData> vehicles = <VehicleData>[];
-      final dynamic rawVehicles = data['vehicles'];
+      final dynamic rawVehicles = body['vehicles'];
 
       if (rawVehicles is List) {
         for (final dynamic item in rawVehicles) {
           if (item is Map) {
-            final Map<String, dynamic> map =
-                Map<String, dynamic>.from(item);
-            vehicles.add(VehicleData.fromMap(map));
+            vehicles.add(VehicleData.fromMap(Map<String, dynamic>.from(item)));
           }
-        }
-      }
-
-      // Migrate the old single vehicle fields into the new array once.
-      if (vehicles.isEmpty) {
-        final String oldNumber =
-            (data['carNumber'] ?? '').toString().trim().toUpperCase();
-        final String oldModel = (data['carModel'] ?? '').toString().trim();
-
-        if (oldNumber.isNotEmpty && oldModel.isNotEmpty) {
-          final VehicleData migrated = VehicleData(
-            id: DateTime.now().microsecondsSinceEpoch.toString(),
-            type: 'Car',
-            model: oldModel,
-            number: oldNumber,
-            color: 'Dark Gray',
-            isPrimary: true,
-          );
-
-          vehicles.add(migrated);
-
-          await userRef.set(
-            <String, dynamic>{
-              'vehicles': <Map<String, dynamic>>[migrated.toMap()],
-              'carNumber': migrated.number,
-              'carModel': migrated.model,
-              'updatedAt': FieldValue.serverTimestamp(),
-            },
-            SetOptions(merge: true),
-          );
         }
       }
 
@@ -121,6 +98,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() => _isLoading = false);
       _showMessage('Unable to load your profile: $e');
     }
+  }
+
+  String _serverMessage(http.Response response, String fallback) {
+    try {
+      final dynamic decoded = jsonDecode(response.body);
+      if (decoded is Map && decoded['message'] != null) {
+        return decoded['message'].toString();
+      }
+    } catch (_) {}
+    return fallback;
   }
 
   void _sortVehicles(List<VehicleData> vehicles) {
@@ -154,17 +141,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
     setState(() => _isSavingProfile = true);
 
     try {
-      await FirebaseFirestore.instance.collection('users').doc(user.uid).set(
-        <String, dynamic>{
-          'uid': user.uid,
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/profile'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(<String, dynamic>{
+          'firebaseUid': user.uid,
           'name': name,
-          'email': email,
           'phoneNumber': user.phoneNumber ?? '',
-          'photoUrl': user.photoURL ?? '',
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+          'email': email,
+        }),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(_serverMessage(response, 'Unable to update profile'));
+      }
 
       if (user.displayName != name) {
         await user.updateDisplayName(name);
@@ -211,49 +201,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
-      final DocumentReference<Map<String, dynamic>> userRef =
-          FirebaseFirestore.instance.collection('users').doc(user.uid);
-      final DocumentSnapshot<Map<String, dynamic>> snapshot =
-          await userRef.get();
+      final response = await http.post(
+        Uri.parse('$baseUrl/api/vehicles'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(<String, dynamic>{
+          'firebaseUid': user.uid,
+          'registrationNumber': vehicle.number,
+          'carModel': vehicle.model,
+          'isPrimary': vehicle.isPrimary || _vehicles.isEmpty,
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-      final List<VehicleData> current = _readVehicles(snapshot.data());
-      final bool shouldBePrimary = current.isEmpty || vehicle.isPrimary;
-
-      final VehicleData savedVehicle = vehicle.copyWith(
-        id: DateTime.now().microsecondsSinceEpoch.toString(),
-        isPrimary: shouldBePrimary,
-      );
-
-      final List<VehicleData> updated = current
-          .map(
-            (VehicleData item) => shouldBePrimary
-                ? item.copyWith(isPrimary: false)
-                : item,
-          )
-          .toList();
-
-      if (shouldBePrimary) {
-        updated.insert(0, savedVehicle);
-      } else {
-        updated.add(savedVehicle);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(_serverMessage(response, 'Unable to add vehicle'));
       }
 
-      _sortVehicles(updated);
-      final VehicleData primary = updated.first;
+      final Map<String, dynamic> body =
+          Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+      if (body['success'] != true || body['vehicle'] is! Map) {
+        throw Exception((body['message'] ?? 'Unable to add vehicle').toString());
+      }
 
-      await userRef.set(
-        <String, dynamic>{
-          'vehicles': updated.map((VehicleData v) => v.toMap()).toList(),
-          'carNumber': primary.number,
-          'carModel': primary.model,
-          'profileCompleted': true,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await _refreshVehicles(showError: false);
 
       if (!mounted) return;
-      setState(() => _vehicles = updated);
       _showMessage('Vehicle added successfully.');
     } catch (e, stackTrace) {
       debugPrint('ADD VEHICLE ERROR: $e');
@@ -261,6 +232,201 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       _showMessage('Unable to add vehicle: $e');
     }
+  }
+
+  Future<void> _refreshVehicles({bool showError = true}) async {
+    final User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final response = await http.get(
+        Uri.parse('$baseUrl/api/vehicles/${Uri.encodeComponent(user.uid)}'),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(_serverMessage(response, 'Unable to load vehicles'));
+      }
+
+      final Map<String, dynamic> body =
+          Map<String, dynamic>.from(jsonDecode(response.body) as Map);
+      if (body['success'] != true) {
+        throw Exception((body['message'] ?? 'Unable to load vehicles').toString());
+      }
+
+      final List<VehicleData> vehicles = <VehicleData>[];
+      final dynamic rawVehicles = body['vehicles'];
+      if (rawVehicles is List) {
+        for (final dynamic item in rawVehicles) {
+          if (item is Map) {
+            vehicles.add(VehicleData.fromMap(Map<String, dynamic>.from(item)));
+          }
+        }
+      }
+      _sortVehicles(vehicles);
+
+      if (!mounted) return;
+      setState(() => _vehicles = vehicles);
+    } catch (e, stackTrace) {
+      debugPrint('REFRESH VEHICLES ERROR: $e');
+      debugPrint(stackTrace.toString());
+      if (showError && mounted) _showMessage('Unable to refresh vehicles: $e');
+    }
+  }
+
+  Future<void> _showEditVehicleSelection() async {
+    final VehicleData? selected = await showModalBottomSheet<VehicleData>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      useSafeArea: true,
+      builder: (BuildContext sheetContext) {
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.70,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 35,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD5D5D8),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'Edit Vehicle',
+                    style: TextStyle(
+                      fontSize: 21,
+                      fontWeight: FontWeight.w800,
+                      color: black,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    'Select the vehicle you want to edit',
+                    style: TextStyle(fontSize: 14, color: grey),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'MY VEHICLES',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: grey,
+                    ),
+                  ),
+                  const SizedBox(height: 9),
+                  ..._vehicles.map(
+                    (VehicleData item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
+                        color: const Color(0xFFF7F7F8),
+                        borderRadius: BorderRadius.circular(13),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(13),
+                          onTap: () => Navigator.of(sheetContext).pop(item),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 13,
+                              vertical: 12,
+                            ),
+                            child: Row(
+                              children: <Widget>[
+                                Container(
+                                  width: 42,
+                                  height: 42,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFFFE8EE),
+                                    borderRadius: BorderRadius.circular(11),
+                                  ),
+                                  child: const Icon(
+                                    Icons.directions_car_outlined,
+                                    color: const Color(0xFFEF0038),
+                                    size: 22,
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        item.model.isEmpty
+                                            ? 'Vehicle'
+                                            : item.model,
+                                        style: const TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w800,
+                                          color: black,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Text(
+                                        item.number,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: grey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (item.isPrimary)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 5,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFFE8EE),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: const Text(
+                                      'Primary',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFFEF0038),
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(width: 8),
+                                const Icon(
+                                  Icons.chevron_right,
+                                  color: Color(0xFF77777C),
+                                  size: 22,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selected == null) return;
+    await _editVehicle(selected);
   }
 
   Future<void> _editVehicle(VehicleData vehicle) async {
@@ -275,44 +441,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
-      final DocumentReference<Map<String, dynamic>> userRef =
-          FirebaseFirestore.instance.collection('users').doc(user.uid);
+      final response = await http.put(
+        Uri.parse('$baseUrl/api/vehicles/${vehicle.id}'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(<String, dynamic>{
+          'firebaseUid': user.uid,
+          'registrationNumber': updatedVehicle.number,
+          'carModel': updatedVehicle.model,
+        }),
+      ).timeout(const Duration(seconds: 10));
 
-      final List<VehicleData> updated = _vehicles.map((VehicleData item) {
-        if (item.id == vehicle.id) {
-          return updatedVehicle.copyWith(id: vehicle.id);
-        }
-        return item;
-      }).toList();
-
-      if (updatedVehicle.isPrimary) {
-        for (int i = 0; i < updated.length; i++) {
-          updated[i] = updated[i].copyWith(
-            isPrimary: updated[i].id == vehicle.id,
-          );
-        }
-      } else if (vehicle.isPrimary) {
-        final bool hasPrimary = updated.any((VehicleData v) => v.isPrimary);
-        if (!hasPrimary && updated.isNotEmpty) {
-          updated[0] = updated[0].copyWith(isPrimary: true);
-        }
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(_serverMessage(response, 'Unable to update vehicle'));
       }
 
-      _sortVehicles(updated);
-      final VehicleData primary = updated.first;
+      if (updatedVehicle.isPrimary && !vehicle.isPrimary) {
+        await _setPrimaryVehicleById(vehicle.id, showMessage: false);
+      }
 
-      await userRef.set(
-        <String, dynamic>{
-          'vehicles': updated.map((VehicleData v) => v.toMap()).toList(),
-          'carNumber': primary.number,
-          'carModel': primary.model,
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await _refreshVehicles(showError: false);
 
       if (!mounted) return;
-      setState(() => _vehicles = updated);
       _showMessage('Vehicle updated successfully.');
     } catch (e, stackTrace) {
       debugPrint('EDIT VEHICLE ERROR: $e');
@@ -328,42 +477,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
       builder: (BuildContext dialogContext) {
         return AlertDialog(
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text(
             'Remove vehicle?',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w800,
-              color: black,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: black),
           ),
           content: Text(
             'Remove ${vehicle.model} (${vehicle.number}) from your profile?',
-            style: const TextStyle(
-              fontSize: 14,
-              height: 1.4,
-              color: grey,
-            ),
+            style: const TextStyle(fontSize: 16, height: 1.4, color: grey),
           ),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text(
-                'Cancel',
-                style: TextStyle(color: grey, fontWeight: FontWeight.w600),
-              ),
+              child: const Text('Cancel', style: TextStyle(color: grey, fontWeight: FontWeight.w600)),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text(
-                'Remove',
-                style: TextStyle(
-                  color: red,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
+              child: const Text('Remove', style: TextStyle(color: Color(0xFFEF0038), fontWeight: FontWeight.w700)),
             ),
           ],
         );
@@ -379,50 +509,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
-      final DocumentReference<Map<String, dynamic>> userRef =
-          FirebaseFirestore.instance.collection('users').doc(user.uid);
-      final DocumentSnapshot<Map<String, dynamic>> snapshot =
-          await userRef.get();
+      final response = await http.delete(
+        Uri.parse('$baseUrl/api/vehicles/${vehicle.id}'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(<String, dynamic>{'firebaseUid': user.uid}),
+      ).timeout(const Duration(seconds: 10));
 
-      final List<VehicleData> current = _readVehicles(snapshot.data());
-      List<VehicleData> remaining = current
-          .where((VehicleData item) => item.id != vehicle.id)
-          .toList();
-
-      if (remaining.isNotEmpty) {
-        final bool hasPrimary =
-            remaining.any((VehicleData item) => item.isPrimary);
-
-        if (vehicle.isPrimary || !hasPrimary) {
-          remaining = remaining.asMap().entries.map((entry) {
-            return entry.value.copyWith(isPrimary: entry.key == 0);
-          }).toList();
-        }
-
-        _sortVehicles(remaining);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(_serverMessage(response, 'Unable to remove vehicle'));
       }
 
-      final Map<String, dynamic> data = <String, dynamic>{
-        'vehicles': remaining.map((VehicleData v) => v.toMap()).toList(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      };
-
-      if (remaining.isEmpty) {
-        data['carNumber'] = '';
-        data['carModel'] = '';
-      } else {
-        final VehicleData primary = remaining.firstWhere(
-          (VehicleData v) => v.isPrimary,
-          orElse: () => remaining.first,
-        );
-        data['carNumber'] = primary.number;
-        data['carModel'] = primary.model;
-      }
-
-      await userRef.set(data, SetOptions(merge: true));
+      await _refreshVehicles(showError: false);
 
       if (!mounted) return;
-      setState(() => _vehicles = remaining);
       _showMessage('Vehicle removed successfully.');
     } catch (e, stackTrace) {
       debugPrint('DELETE VEHICLE ERROR: $e');
@@ -430,20 +529,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       _showMessage('Unable to remove vehicle: $e');
     }
-  }
-
-  List<VehicleData> _readVehicles(Map<String, dynamic>? data) {
-    final List<VehicleData> result = <VehicleData>[];
-    final dynamic raw = data?['vehicles'];
-
-    if (raw is List) {
-      for (final dynamic item in raw) {
-        if (item is Map) {
-          result.add(VehicleData.fromMap(Map<String, dynamic>.from(item)));
-        }
-      }
-    }
-    return result;
   }
 
   void _toggleEditProfile() {
@@ -486,173 +571,552 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
 
+    final User? user = _user ?? FirebaseAuth.instance.currentUser;
+    final String name = _nameController.text.trim().isEmpty
+        ? 'Your Name'
+        : _nameController.text.trim();
+    final String email = _emailController.text.trim();
+    final String phone = user?.phoneNumber ?? '';
+    final VehicleData? primaryVehicle = _vehicles.isEmpty
+        ? null
+        : _vehicles.firstWhere(
+            (VehicleData vehicle) => vehicle.isPrimary,
+            orElse: () => _vehicles.first,
+          );
+
     return Scaffold(
       backgroundColor: Colors.white,
       body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(37, 16, 37, 30),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: <Widget>[
-              Row(
-                children: <Widget>[
-                  IconButton(
-                    onPressed: () => Navigator.of(context).maybePop(),
-                    icon: const Icon(
-                      Icons.arrow_back_ios_new,
-                      size: 18,
-                      color: black,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(
-                      minWidth: 36,
-                      minHeight: 36,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Text(
-                    'Just a few details',
-                    style: TextStyle(
-                      fontSize: 22,
-                      fontWeight: FontWeight.w800,
-                      color: black,
-                      letterSpacing: -0.4,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              const Padding(
-                padding: EdgeInsets.only(left: 40),
-                child: Text(
-                  'Set up your profile for effortless paperless\nvaleting',
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.35,
-                    color: grey,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'FULL NAME (REQUIRED)',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  color: black,
-                ),
-              ),
-              const SizedBox(height: 7),
-              _buildTextField(
-                controller: _nameController,
-                hint: 'Priya Sharma',
-                enabled: _isEditingProfile,
-                keyboardType: TextInputType.name,
-              ),
-              const SizedBox(height: 21),
-              const Text(
-                'EMAIL ADDRESS (OPTIONAL)',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  color: black,
-                ),
-              ),
-              const SizedBox(height: 7),
-              _buildTextField(
-                controller: _emailController,
-                hint: 'priya@email.com',
-                enabled: _isEditingProfile,
-                keyboardType: TextInputType.emailAddress,
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'YOUR VEHICLES',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w800,
-                  color: black,
-                ),
-              ),
-              const SizedBox(height: 9),
-              _buildVehicleArea(),
-              const SizedBox(height: 40),
-              if (_isEditingProfile)
-                SizedBox(
-                  width: double.infinity,
-                  height: 47,
-                  child: ElevatedButton(
-                    onPressed: _isSavingProfile ? null : _saveProfile,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: red,
-                      foregroundColor: Colors.white,
-                      disabledBackgroundColor: red,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+        child: Column(
+          children: <Widget>[
+            // ======================================================
+            // HEADER
+            // ======================================================
+            SizedBox(
+              height: 60,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 14, 0),
+                child: Row(
+                  children: <Widget>[
+                    const Text(
+                      'My Profile',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        color: black,
+                        letterSpacing: -0.2,
                       ),
                     ),
-                    child: _isSavingProfile
-                        ? const SizedBox(
-                            width: 20,
-                            height: 20,
-                            child: CircularProgressIndicator(
-                              color: Colors.white,
-                              strokeWidth: 2,
-                            ),
-                          )
-                        : const Text(
-                            'Save Changes',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
+                    const Spacer(),
+                    Material(
+                      color: const Color(0xFFF7F7F8),
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: _showProfileEditSheet,
+                        child: const SizedBox(
+                          width: 40,
+                          height: 40,
+                          child: Icon(
+                            Icons.settings_outlined,
+                            size: 22,
+                            color: black,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const Divider(height: 1, color: Color(0xFFEDEDEF)),
+
+            // ======================================================
+            // PROFILE CONTENT
+            // ======================================================
+            Expanded(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: const EdgeInsets.only(bottom: 18),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    // Profile identity row
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+                      child: Row(
+                        children: <Widget>[
+                          _buildAvatar(user),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: black,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  [
+                                    if (email.isNotEmpty) email,
+                                    if (phone.isNotEmpty) phone,
+                                  ].join(' • '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: grey,
+                                    fontWeight: FontWeight.w400,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                  ),
-                )
-              else
-                SizedBox(
-                  width: double.infinity,
-                  height: 47,
-                  child: ElevatedButton(
-                    onPressed: _vehicles.isEmpty ? _addVehicle : () => Navigator.of(context).maybePop(),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: red,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                        ],
                       ),
                     ),
-                    child: const Text(
-                      'Continue',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                    const Divider(height: 1, color: Color(0xFFF0F0F1)),
+
+                    // ==================================================
+                    // VEHICLES
+                    // ==================================================
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(18, 16, 18, 8),
+                      child: Text(
+                        'MY VEHICLES',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: grey,
+                          letterSpacing: 0.15,
+                        ),
                       ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      child: primaryVehicle == null
+                          ? _buildProfileEmptyVehicleCard()
+                          : _buildProfileVehicleCard(primaryVehicle),
+                    ),
+
+                    const SizedBox(height: 18),
+
+                    // ==================================================
+                    // PROFILE MENU
+                    // ==================================================
+                    _buildProfileMenuItem(
+                      icon: Icons.credit_card_outlined,
+                      title: 'Payment Methods',
+                      onTap: () => _showMessage(
+                        'Payment methods will be available soon.',
+                      ),
+                    ),
+                    _buildProfileMenuItem(
+                      icon: Icons.location_on_outlined,
+                      title: 'Saved Locations',
+                      subtitle: 'Home, Office',
+                      onTap: () => _showMessage(
+                        'Saved locations will be available soon.',
+                      ),
+                    ),
+                    _buildProfileMenuItem(
+                      icon: Icons.help_outline,
+                      title: 'Support & Help',
+                      onTap: () => _showMessage(
+                        'Support & Help will be available soon.',
+                      ),
+                    ),
+                    _buildProfileMenuItem(
+                      icon: Icons.info_outline,
+                      title: 'About QuickPark',
+                      onTap: () => _showMessage(
+                        'QuickPark — valet parking, simplified.',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: _buildProfileBottomNavigation(),
+    );
+  }
+
+  Widget _buildAvatar(User? user) {
+    final String? photoUrl = user?.photoURL;
+
+    if (photoUrl != null && photoUrl.isNotEmpty) {
+      return ClipOval(
+        child: Image.network(
+          photoUrl,
+          width: 58,
+          height: 58,
+          fit: BoxFit.cover,
+          errorBuilder: (_, __, ___) => _buildInitialAvatar(),
+        ),
+      );
+    }
+
+    return _buildInitialAvatar();
+  }
+
+  Widget _buildInitialAvatar() {
+    final String name = _nameController.text.trim();
+    final String initial = name.isEmpty ? 'Q' : name[0].toUpperCase();
+
+    return Container(
+      width: 58,
+      height: 58,
+      decoration: const BoxDecoration(
+        color: Color(0xFFF2F2F3),
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        initial,
+        style: const TextStyle(
+          fontSize: 22,
+          fontWeight: FontWeight.w800,
+          color: const Color(0xFFEF0038),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileVehicleCard(VehicleData vehicle) {
+    return Material(
+      color: const Color(0xFFF4F4F6),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () { _showVehicleOptions(vehicle); },
+        child: SizedBox(
+          height: 62,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 15),
+            child: Row(
+              children: <Widget>[
+                const Icon(
+                  Icons.local_shipping_outlined,
+                  color: const Color(0xFFEF0038),
+                  size: 24,
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      Text(
+                        vehicle.model.isEmpty ? 'Vehicle' : vehicle.model,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: black,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${vehicle.number}${vehicle.color.isNotEmpty ? ' · ${vehicle.color}' : ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: grey,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(
+                  Icons.chevron_right,
+                  size: 24,
+                  color: Color(0xFF707074),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileEmptyVehicleCard() {
+    return Material(
+      color: const Color(0xFFF4F4F6),
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: _addVehicle,
+        child: const SizedBox(
+          height: 62,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: 15),
+            child: Row(
+              children: <Widget>[
+                Icon(Icons.add_circle_outline, color: const Color(0xFFEF0038), size: 24),
+                SizedBox(width: 14),
+                Expanded(
+                  child: Text(
+                    'Add your first vehicle',
+                    style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w700,
+                      color: black,
                     ),
                   ),
                 ),
-              const SizedBox(height: 13),
-              if (!_isEditingProfile)
-                Center(
-                  child: TextButton(
-                    onPressed: _toggleEditProfile,
-                    child: const Text(
-                      'Edit profile',
-                      style: TextStyle(
-                        color: grey,
-                        fontSize: 12,
-                        decoration: TextDecoration.underline,
+                Icon(
+                  Icons.chevron_right,
+                  size: 24,
+                  color: Color(0xFF707074),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileMenuItem({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      child: SizedBox(
+        height: subtitle == null ? 62 : 68,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18),
+          child: Row(
+            children: <Widget>[
+              Icon(icon, size: 23, color: black),
+              const SizedBox(width: 15),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w500,
+                        color: black,
                       ),
                     ),
-                  ),
+                    if (subtitle != null) ...<Widget>[
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: grey,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
+              ),
+              const Icon(
+                Icons.chevron_right,
+                size: 23,
+                color: Color(0xFF707074),
+              ),
             ],
           ),
         ),
       ),
     );
+  }
+
+  Widget _buildProfileBottomNavigation() {
+    return Container(
+      height: 68,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(color: Color(0xFFEDEDEF)),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: <Widget>[
+            _buildProfileNavItem(
+              icon: Icons.home_outlined,
+              label: 'Home',
+              selected: false,
+              onTap: () => Navigator.of(context).maybePop(),
+            ),
+            _buildProfileNavItem(
+              icon: Icons.calendar_today_outlined,
+              label: 'Bookings',
+              selected: false,
+              onTap: () => _showMessage('Opening bookings...'),
+            ),
+            _buildProfileNavItem(
+              icon: Icons.notifications_none_outlined,
+              label: 'Alerts',
+              selected: false,
+              onTap: () => _showMessage('Alerts will be available soon.'),
+            ),
+            _buildProfileNavItem(
+              icon: Icons.person_outline,
+              label: 'Profile',
+              selected: true,
+              onTap: () {},
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProfileNavItem({
+    required IconData icon,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: <Widget>[
+            Icon(
+              icon,
+              size: 23,
+              color: selected ? red : const Color(0xFF6F7074),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w400,
+                color: selected ? red : const Color(0xFF6F7074),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showProfileEditSheet() async {
+    final TextEditingController nameController =
+        TextEditingController(text: _nameController.text);
+    final TextEditingController emailController =
+        TextEditingController(text: _emailController.text);
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext sheetContext) {
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+          ),
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: <Widget>[
+                Center(
+                  child: Container(
+                    width: 34,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFD7D7D9),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+                const Text(
+                  'Edit Profile',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: black,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: nameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Full Name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: const InputDecoration(
+                    labelText: 'Email Address',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () async {
+                      _nameController.text = nameController.text;
+                      _emailController.text = emailController.text;
+                      Navigator.of(sheetContext).pop();
+                      await _saveProfile();
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: red,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    child: const Text(
+                      'Save Changes',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    nameController.dispose();
+    emailController.dispose();
   }
 
   Widget _buildVehicleArea() {
@@ -681,7 +1145,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: red, width: 1.1),
+          border: Border.all(color: const Color(0xFFEF0038), width: 1.1),
         ),
         child: Row(
           children: <Widget>[
@@ -699,9 +1163,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
             const Text(
               'Add your first vehicle',
               style: TextStyle(
-                fontSize: 12,
+                fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: red,
+                color: const Color(0xFFEF0038),
               ),
             ),
           ],
@@ -712,7 +1176,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildVehicleCard(VehicleData vehicle) {
     return GestureDetector(
-      onTap: () => _showVehicleOptions(vehicle),
+      onTap: () { _showVehicleOptions(vehicle); },
       child: Container(
         width: 137,
         padding: const EdgeInsets.fromLTRB(12, 10, 10, 9),
@@ -738,7 +1202,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 12,
+                      fontSize: 14,
                       fontWeight: FontWeight.w800,
                       color: black,
                     ),
@@ -768,7 +1232,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(
-                  fontSize: 9,
+                  fontSize: 11,
                   fontWeight: FontWeight.w800,
                   color: black,
                 ),
@@ -779,8 +1243,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               const Text(
                 'Primary vehicle',
                 style: TextStyle(
-                  fontSize: 8,
-                  color: red,
+                  fontSize: 10,
+                  color: const Color(0xFFEF0038),
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -808,7 +1272,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Text(
               'Add another',
               style: TextStyle(
-                fontSize: 9,
+                fontSize: 11,
                 color: grey,
                 fontWeight: FontWeight.w500,
               ),
@@ -819,108 +1283,494 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showVehicleOptions(VehicleData vehicle) {
-    showModalBottomSheet<void>(
+  Future<void> _showVehicleOptions(VehicleData vehicle) async {
+    final String? action = await showModalBottomSheet<String>(
       context: context,
+      isScrollControlled: true,
       backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      useSafeArea: true,
       builder: (BuildContext sheetContext) {
         return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.78,
+          ),
           decoration: const BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(22),
-              topRight: Radius.circular(22),
-            ),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
           ),
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 25),
           child: SafeArea(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: <Widget>[
-                Container(
-                  width: 35,
-                  height: 5,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD5D5D8),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: <Widget>[
-                    Container(
-                      width: 48,
-                      height: 48,
-                      decoration: const BoxDecoration(
-                        color: Color(0xFFFFE8EE),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.directions_car_outlined,
-                        color: red,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 25),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 35,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD5D5D8),
+                        borderRadius: BorderRadius.circular(10),
                       ),
                     ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: <Widget>[
-                          Text(
-                            vehicle.model,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: black,
+                  ),
+                  const SizedBox(height: 18),
+                  Row(
+                    children: <Widget>[
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFFE8EE),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.directions_car_outlined,
+                          color: const Color(0xFFEF0038),
+                        ),
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              vehicle.model.isEmpty ? 'Vehicle' : vehicle.model,
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
+                                color: black,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              vehicle.number,
+                              style: const TextStyle(fontSize: 14, color: grey),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (vehicle.isPrimary)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 9,
+                            vertical: 5,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFE8EE),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            'Primary',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFFEF0038),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            vehicle.number,
-                            style: const TextStyle(fontSize: 12, color: grey),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'MY VEHICLES',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: grey,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ..._vehicles.map(
+                    (VehicleData item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 7),
+                      child: Material(
+                        color: item.isPrimary
+                            ? const Color(0xFFFFF1F4)
+                            : const Color(0xFFF7F7F8),
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () async {
+                            Navigator.of(sheetContext).pop('primary:${item.id}');
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 10,
+                            ),
+                            child: Row(
+                              children: <Widget>[
+                                Icon(
+                                  Icons.directions_car_outlined,
+                                  size: 22,
+                                  color: item.isPrimary
+                                      ? red
+                                      : const Color(0xFF555555),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: <Widget>[
+                                      Text(
+                                        item.model.isEmpty
+                                            ? 'Vehicle'
+                                            : item.model,
+                                        style: const TextStyle(
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w700,
+                                          color: black,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        item.number,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: grey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                if (item.isPrimary)
+                                  const Text(
+                                    'Primary',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800,
+                                      color: const Color(0xFFEF0038),
+                                    ),
+                                  ),
+                                const SizedBox(width: 7),
+                                Icon(
+                                  item.isPrimary
+                                      ? Icons.check_circle
+                                      : Icons.radio_button_unchecked,
+                                  size: 20,
+                                  color: item.isPrimary
+                                      ? red
+                                      : const Color(0xFFB0B0B0),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.edit_outlined, color: red),
-                  title: const Text(
-                    'Edit vehicle',
-                    style: TextStyle(fontWeight: FontWeight.w600),
                   ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) _editVehicle(vehicle);
-                    });
-                  },
-                ),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(Icons.delete_outline, color: red),
-                  title: const Text(
-                    'Remove vehicle',
-                    style: TextStyle(
-                      color: red,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  const SizedBox(height: 8),
+                  _VehicleActionRow(
+                    icon: Icons.add_circle_outline,
+                    title: 'Add vehicle',
+                    onTap: () => Navigator.of(sheetContext).pop('add'),
                   ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (mounted) _deleteVehicle(vehicle);
-                    });
-                  },
-                ),
-              ],
+                  _VehicleActionRow(
+                    icon: Icons.edit_outlined,
+                    title: 'Edit vehicle',
+                    onTap: () => Navigator.of(sheetContext).pop('edit'),
+                  ),
+                  _VehicleActionRow(
+                    icon: Icons.delete_outline,
+                    title: 'Remove vehicle',
+                    isDestructive: true,
+                    onTap: () => Navigator.of(sheetContext).pop('remove'),
+                  ),
+                ],
+              ),
             ),
           ),
         );
       },
     );
+
+    if (!mounted || action == null) return;
+
+    if (action == 'add') {
+      await _addVehicle();
+      return;
+    }
+
+    if (action == 'edit') {
+      await _showEditVehicleSelection();
+      return;
+    }
+
+    if (action == 'remove') {
+      await _showRemoveVehicleSheet();
+      return;
+    }
+
+    if (action.startsWith('primary:')) {
+      final String id = action.substring('primary:'.length);
+      final VehicleData? selected = _vehicles.cast<VehicleData?>().firstWhere(
+        (VehicleData? item) => item?.id == id,
+        orElse: () => null,
+      );
+
+      if (selected == null || selected.isPrimary) return;
+
+      await _setPrimaryVehicle(selected);
+
+      if (!mounted) return;
+      _showMessage('${selected.model} is now your primary vehicle.');
+    }
+  }
+
+  Future<void> _setPrimaryVehicle(VehicleData selected) async {
+    await _setPrimaryVehicleById(selected.id, showMessage: true);
+  }
+
+  Future<void> _setPrimaryVehicleById(
+    String vehicleId, {
+    required bool showMessage,
+  }) async {
+    final User? user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (showMessage) _showMessage('Please login again.');
+      return;
+    }
+
+    try {
+      final response = await http.patch(
+        Uri.parse('$baseUrl/api/vehicles/$vehicleId/primary'),
+        headers: const {'Content-Type': 'application/json'},
+        body: jsonEncode(<String, dynamic>{'firebaseUid': user.uid}),
+      ).timeout(const Duration(seconds: 10));
+
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw Exception(_serverMessage(response, 'Unable to set primary vehicle'));
+      }
+
+      await _refreshVehicles(showError: false);
+
+      if (showMessage && mounted) {
+        final VehicleData? selected = _vehicles.cast<VehicleData?>().firstWhere(
+          (VehicleData? item) => item?.id == vehicleId,
+          orElse: () => null,
+        );
+        _showMessage('${selected?.model ?? 'Vehicle'} is now your primary vehicle.');
+      }
+    } catch (e, stackTrace) {
+      debugPrint('SET PRIMARY ERROR: $e');
+      debugPrint(stackTrace.toString());
+      if (mounted) _showMessage('Could not change primary vehicle: $e');
+    }
+  }
+
+  Future<void> _showRemoveVehicleSheet() async {
+    if (_vehicles.isEmpty) {
+      _showMessage('No vehicles available to remove.');
+      return;
+    }
+
+    final VehicleData? selected = await showModalBottomSheet<VehicleData>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withValues(alpha: 0.38),
+      useSafeArea: true,
+      builder: (BuildContext sheetContext) {
+        return Container(
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(sheetContext).height * 0.72,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(22),
+            ),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Center(
+                    child: Container(
+                      width: 35,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD5D5D8),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  const Text(
+                    'REMOVE VEHICLE',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: grey,
+                      letterSpacing: 0.15,
+                    ),
+                  ),
+                  const SizedBox(height: 7),
+                  const Text(
+                    'Select a vehicle to remove',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w800,
+                      color: black,
+                    ),
+                  ),
+                  const SizedBox(height: 15),
+                  ..._vehicles.map(
+                    (VehicleData item) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
+                        color: const Color(0xFFF7F7F8),
+                        borderRadius: BorderRadius.circular(13),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(13),
+                          onTap: () {
+                            Navigator.of(sheetContext).pop(item);
+                          },
+                          child: SizedBox(
+                            height: 64,
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 13,
+                              ),
+                              child: Row(
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.directions_car_outlined,
+                                    size: 24,
+                                    color: item.isPrimary
+                                        ? red
+                                        : const Color(0xFF555555),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: <Widget>[
+                                        Text(
+                                          item.model.isEmpty
+                                              ? 'Vehicle'
+                                              : item.model,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w800,
+                                            color: black,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          item.number,
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  if (item.isPrimary)
+                                    const Text(
+                                      'PRIMARY',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: const Color(0xFFEF0038),
+                                      ),
+                                    ),
+                                  const SizedBox(width: 9),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    size: 22,
+                                    color: Color(0xFF77777C),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (!mounted || selected == null) return;
+    await _confirmDeleteVehicle(selected);
+  }
+
+  Future<void> _confirmDeleteVehicle(VehicleData vehicle) async {
+    if (_vehicles.length <= 1) {
+      _showMessage('You must keep at least one vehicle.');
+      return;
+    }
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          title: const Text(
+            'Remove vehicle?',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: black,
+            ),
+          ),
+          content: Text(
+            'Are you sure you want to remove ${vehicle.model.isEmpty ? 'this vehicle' : vehicle.model} (${vehicle.number})?',
+            style: const TextStyle(
+              fontSize: 14,
+              color: grey,
+              height: 1.4,
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: black,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text(
+                'Remove',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: const Color(0xFFEF0038),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    await _deleteVehicle(vehicle);
   }
 
   Widget _buildTextField({
@@ -935,10 +1785,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         controller: controller,
         enabled: enabled,
         keyboardType: keyboardType,
-        style: const TextStyle(fontSize: 12, color: black),
+        style: const TextStyle(fontSize: 14, color: black),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(fontSize: 12, color: grey),
+          hintStyle: const TextStyle(fontSize: 14, color: grey),
           filled: true,
           fillColor: const Color(0xFFFAFAFB),
           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
@@ -952,7 +1802,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(9),
-            borderSide: const BorderSide(color: red, width: 1.2),
+            borderSide: const BorderSide(color: const Color(0xFFEF0038), width: 1.2),
           ),
           disabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(9),
@@ -968,6 +1818,59 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _nameController.dispose();
     _emailController.dispose();
     super.dispose();
+  }
+}
+
+class _VehicleActionRow extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final VoidCallback onTap;
+  final bool isDestructive;
+
+  const _VehicleActionRow({
+    required this.icon,
+    required this.title,
+    required this.onTap,
+    this.isDestructive = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Color textColor = isDestructive ? const Color(0xFFEF0038) : const Color(0xFF111111);
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        splashColor: const Color(0xFFEF0038).withValues(alpha: 0.06),
+        highlightColor: const Color(0xFFEF0038).withValues(alpha: 0.03),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 4,
+            vertical: 13,
+          ),
+          child: Row(
+            children: <Widget>[
+              Icon(
+                icon,
+                size: 22,
+                color: const Color(0xFFEF0038),
+              ),
+              const SizedBox(width: 14),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: textColor,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -992,24 +1895,21 @@ class VehicleData {
     return VehicleData(
       id: (data['id'] ?? data['vehicleId'] ?? '').toString(),
       type: (data['type'] ?? 'Car').toString(),
-      model: (data['model'] ?? '').toString(),
-      number: (data['number'] ?? '').toString(),
+      model: (data['model'] ?? data['carModel'] ?? '').toString(),
+      number: (data['number'] ?? data['registrationNumber'] ?? '').toString(),
       color: (data['color'] ?? 'Dark Gray').toString(),
       isPrimary: data['isPrimary'] == true,
     );
   }
 
-  Map<String, dynamic> toMap() {
-    return <String, dynamic>{
-      'id': id,
-      'vehicleId': id,
-      'type': type,
-      'model': model,
-      'number': number,
-      'color': color,
-      'isPrimary': isPrimary,
-    };
-  }
+  Map<String, dynamic> toMap() => <String, dynamic>{
+        'id': id,
+        'type': type,
+        'model': model,
+        'number': number,
+        'color': color,
+        'isPrimary': isPrimary,
+      };
 
   VehicleData copyWith({
     String? id,
@@ -1153,7 +2053,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
               Text(
                 _isEditing ? 'Edit Vehicle' : 'Add New Vehicle',
                 style: const TextStyle(
-                  fontSize: 17,
+                  fontSize: 20,
                   fontWeight: FontWeight.w800,
                   color: black,
                 ),
@@ -1189,7 +2089,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
                         Text(
                           'Set as primary vehicle',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 13,
                             fontWeight: FontWeight.w700,
                             color: black,
                           ),
@@ -1197,7 +2097,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
                         SizedBox(height: 2),
                         Text(
                           'Will be selected by default for valet booking',
-                          style: TextStyle(fontSize: 9, color: grey),
+                          style: TextStyle(fontSize: 11, color: grey),
                         ),
                       ],
                     ),
@@ -1228,7 +2128,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
                             : () => Navigator.of(context).pop(),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: red,
-                          side: const BorderSide(color: red, width: 1.1),
+                          side: const BorderSide(color: const Color(0xFFEF0038), width: 1.1),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(9),
                           ),
@@ -1236,7 +2136,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
                         child: const Text(
                           'Cancel',
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 13,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -1260,7 +2160,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
                         child: Text(
                           _isEditing ? 'Save Changes' : 'Save Vehicle',
                           style: const TextStyle(
-                            fontSize: 11,
+                            fontSize: 13,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -1280,7 +2180,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
     return Text(
       text,
       style: const TextStyle(
-        fontSize: 9,
+        fontSize: 11,
         fontWeight: FontWeight.w800,
         color: black,
       ),
@@ -1297,10 +2197,10 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
       child: TextField(
         controller: controller,
         textCapitalization: capitalization,
-        style: const TextStyle(fontSize: 12, color: black),
+        style: const TextStyle(fontSize: 14, color: black),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(fontSize: 12, color: grey),
+          hintStyle: const TextStyle(fontSize: 14, color: grey),
           filled: true,
           fillColor: Colors.white,
           contentPadding: const EdgeInsets.symmetric(
@@ -1317,7 +2217,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(9),
-            borderSide: const BorderSide(color: red, width: 1.1),
+            borderSide: const BorderSide(color: const Color(0xFFEF0038), width: 1.1),
           ),
         ),
       ),
@@ -1361,7 +2261,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
             Text(
               type,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight: FontWeight.w700,
                 color: selected ? black : grey,
               ),
@@ -1396,7 +2296,7 @@ class _AddVehicleSheetState extends State<AddVehicleSheet> {
           value: colors.contains(_selectedColor) ? _selectedColor : 'Other',
           isExpanded: true,
           icon: const Icon(Icons.keyboard_arrow_down, size: 18, color: grey),
-          style: const TextStyle(fontSize: 12, color: black),
+          style: const TextStyle(fontSize: 14, color: black),
           items: colors.map((String color) {
             return DropdownMenuItem<String>(
               value: color,

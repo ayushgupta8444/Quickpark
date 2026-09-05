@@ -424,14 +424,14 @@ class _LoginScreenState extends State<LoginScreen> {
                           SizedBox(
                             width:
                                 double.infinity,
-                            height: 58,
+                            height: 75,
 
                             child: Center(
                               child:
                                   Image.asset(
                                 'assets/images/quickpark_logo2.png',
-width: 210,
-height: 62,
+width: 300,
+height: 75,
                                 fit:
                                     BoxFit.contain,
 
@@ -457,7 +457,7 @@ height: 62,
                             'Enter your mobile number',
 
                             style: TextStyle(
-                              fontSize: 24,
+                              fontSize: 30,
                               fontWeight:
                                   FontWeight.w700,
                               color:
@@ -485,7 +485,7 @@ height: 62,
                             'valets in Bangalore',
 
                             style: TextStyle(
-                              fontSize: 13,
+                              fontSize: 16,
                               fontWeight:
                                   FontWeight.w400,
                               color:
@@ -510,14 +510,14 @@ height: 62,
                             'MOBILE NUMBER',
 
                             style: TextStyle(
-                              fontSize: 10.5,
+                              fontSize: 13,
                               fontWeight:
                                   FontWeight.w700,
                               color:
                                   darkText,
-                              height: 1,
+                              height: 1.1,
                               letterSpacing:
-                                  0.05,
+                                  0.1,
                             ),
                           ),
 
@@ -619,9 +619,9 @@ height: 62,
               '+91',
 
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 15,
                 fontWeight:
-                    FontWeight.w500,
+                    FontWeight.w600,
                 color: darkText,
               ),
             ),
@@ -679,7 +679,7 @@ height: 62,
 
                   hintStyle:
                       TextStyle(
-                    fontSize: 12,
+                    fontSize: 14,
                     fontWeight:
                         FontWeight.w400,
                     color:
@@ -698,7 +698,7 @@ height: 62,
 
                 style:
                     const TextStyle(
-                  fontSize: 12,
+                  fontSize: 14,
                   fontWeight:
                       FontWeight.w400,
                   color: darkText,
@@ -783,9 +783,9 @@ height: 62,
                 'Send OTP',
 
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 15,
                   fontWeight:
-                      FontWeight.w600,
+                      FontWeight.w700,
                 ),
               ),
       ),
@@ -856,7 +856,7 @@ height: 62,
 
                 style:
                     const TextStyle(
-                  fontSize: 9.5,
+                  fontSize: 12,
                   fontWeight:
                       FontWeight.w400,
                   color:
@@ -1487,7 +1487,7 @@ class _OtpVerificationScreenState
 
                   style:
                       TextStyle(
-                    fontSize: 23,
+                    fontSize: 28,
                     fontWeight:
                         FontWeight.w700,
                     color:
@@ -1504,7 +1504,7 @@ class _OtpVerificationScreenState
 
                   style:
                       TextStyle(
-                    fontSize: 12,
+                    fontSize: 14,
                     color:
                         secondaryText,
                   ),
@@ -1525,7 +1525,7 @@ class _OtpVerificationScreenState
 
                       style:
                           const TextStyle(
-                        fontSize: 13,
+                        fontSize: 15,
                         fontWeight:
                             FontWeight.w600,
                         color:
@@ -1550,7 +1550,7 @@ class _OtpVerificationScreenState
 
                         style:
                             TextStyle(
-                          fontSize: 11,
+                          fontSize: 13,
                           fontWeight:
                               FontWeight.w600,
                           color:
@@ -1822,7 +1822,7 @@ class _OtpVerificationScreenState
 
         style:
             const TextStyle(
-          fontSize: 18,
+          fontSize: 20,
           fontWeight:
               FontWeight.w600,
           color: darkText,

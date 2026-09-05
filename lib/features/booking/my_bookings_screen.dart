@@ -145,7 +145,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => const DestinationScreen(),
+        builder: (_) => DestinationScreen(),
       ),
     );
   }

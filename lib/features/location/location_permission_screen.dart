@@ -20,7 +20,7 @@ class _LocationPermissionScreenState
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => const DestinationScreen(),
+        builder: (_) =>  DestinationScreen(),
       ),
     );
   }

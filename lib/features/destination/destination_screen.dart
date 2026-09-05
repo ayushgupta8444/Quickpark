@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../valet/valet_selection_screen.dart';
 import '../profile/profile_screen.dart';
+import '../booking/my_bookings_screen.dart';
 
 class DestinationScreen extends StatefulWidget {
   const DestinationScreen({super.key});
@@ -113,128 +114,167 @@ class _DestinationScreenState
   // ============================================================
 
   void _openSearch() {
-    showModalBottomSheet(
+    showGeneralDialog<void>(
       context: context,
-      backgroundColor: Colors.transparent,
-      isScrollControlled: true,
-      builder: (context) {
-        return Container(
-          padding: EdgeInsets.only(
-            left: 20,
-            right: 20,
-            top: 18,
-            bottom: MediaQuery.of(context)
-                    .viewInsets
-                    .bottom +
-                24,
-          ),
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(
-              topLeft: Radius.circular(24),
-              topRight: Radius.circular(24),
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment:
-                CrossAxisAlignment.start,
+      barrierDismissible: true,
+      barrierLabel: 'Search destination',
+      barrierColor: Colors.transparent,
+      transitionDuration: const Duration(milliseconds: 220),
+      pageBuilder: (
+        BuildContext dialogContext,
+        Animation<double> animation,
+        Animation<double> secondaryAnimation,
+      ) {
+        final double topInset = MediaQuery.of(dialogContext).padding.top;
+
+        return Material(
+          color: Colors.transparent,
+          child: Stack(
             children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFD7D7D7),
-                    borderRadius:
-                        BorderRadius.circular(20),
+              // Transparent background. Tapping outside closes search.
+              Positioned.fill(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: () => Navigator.of(dialogContext).pop(),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+
+              // Search panel stays at the TOP.
+              Positioned(
+                top: topInset + 8,
+                left: 16,
+                right: 16,
+                child: GestureDetector(
+                  onTap: () {},
+                  child: Material(
+                    color: Colors.white,
+                    elevation: 12,
+                    shadowColor: const Color(0x26000000),
+                    borderRadius: BorderRadius.circular(18),
+                    clipBehavior: Clip.antiAlias,
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        16,
+                        16,
+                        16,
+                        14,
+                      ),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Search destination',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF181818),
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          Container(
+                            height: 50,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF5F5F6),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: TextField(
+                              autofocus: true,
+                              controller: _searchController,
+                              textInputAction: TextInputAction.search,
+                              onSubmitted: (value) {
+                                if (value.trim().isNotEmpty) {
+                                  setState(() {
+                                    _currentLocation = value.trim();
+                                  });
+                                  Navigator.of(dialogContext).pop();
+                                }
+                              },
+                              decoration: const InputDecoration(
+                                prefixIcon: Icon(
+                                  Icons.search,
+                                  color: Color(0xFFEF0038),
+                                ),
+                                hintText: 'Enter destination',
+                                hintStyle: TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF777777),
+                                ),
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.symmetric(
+                                  vertical: 15,
+                                ),
+                              ),
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF181818),
+                              ),
+                            ),
+                          ),
+
+                          const SizedBox(height: 14),
+
+                          _SearchSuggestion(
+                            icon: Icons.my_location,
+                            title: 'Use current location',
+                            subtitle: 'Find valet parking near you',
+                            onTap: () {
+                              setState(() {
+                                _currentLocation = 'Current location';
+                              });
+                              Navigator.of(dialogContext).pop();
+                            },
+                          ),
+
+                          const SizedBox(height: 6),
+
+                          _SearchSuggestion(
+                            icon: Icons.location_on_outlined,
+                            title: 'Koramangala 80 Feet Road',
+                            subtitle: 'Bengaluru',
+                            onTap: () {
+                              setState(() {
+                                _currentLocation =
+                                    'Koramangala 80 Feet Road';
+                              });
+                              Navigator.of(dialogContext).pop();
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
-
-              const SizedBox(height: 22),
-
-              const Text(
-                'Search destination',
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFF181818),
-                ),
-              ),
-
-              const SizedBox(height: 16),
-
-              Container(
-                height: 50,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF5F5F6),
-                  borderRadius:
-                      BorderRadius.circular(12),
-                ),
-                child: TextField(
-                  autofocus: true,
-                  controller: _searchController,
-                  onSubmitted: (value) {
-                    if (value.trim().isNotEmpty) {
-                      setState(() {
-                        _currentLocation =
-                            value.trim();
-                      });
-
-                      Navigator.pop(context);
-                    }
-                  },
-                  decoration:
-                      const InputDecoration(
-                    prefixIcon: Icon(
-                      Icons.search,
-                      color: Color(0xFFEF0038),
-                    ),
-                    hintText:
-                        'Enter destination',
-                    border: InputBorder.none,
-                    contentPadding:
-                        EdgeInsets.symmetric(
-                      vertical: 15,
-                    ),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 18),
-
-              _SearchSuggestion(
-                icon: Icons.my_location,
-                title: 'Use current location',
-                subtitle:
-                    'Find valet parking near you',
-                onTap: () {
-                  setState(() {
-                    _currentLocation =
-                        'Current location';
-                  });
-
-                  Navigator.pop(context);
-                },
-              ),
-
-              const SizedBox(height: 8),
-
-              _SearchSuggestion(
-                icon: Icons.location_on_outlined,
-                title: 'Koramangala 80 Feet Road',
-                subtitle: 'Bengaluru',
-                onTap: () {
-                  setState(() {
-                    _currentLocation =
-                        'Koramangala 80 Feet Road';
-                  });
-
-                  Navigator.pop(context);
-                },
               ),
             ],
+          ),
+        );
+      },
+      transitionBuilder: (
+        BuildContext context,
+        Animation<double> animation,
+        Animation<double> secondaryAnimation,
+        Widget child,
+      ) {
+        final Animation<Offset> slideAnimation = Tween<Offset>(
+          begin: const Offset(0, -0.08),
+          end: Offset.zero,
+        ).animate(
+          CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: slideAnimation,
+            child: child,
           ),
         );
       },
@@ -358,6 +398,16 @@ class _DestinationScreenState
   void _onBottomNavigationTap(
     int index,
   ) {
+    if (index == 1) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const MyBookingsScreen(),
+        ),
+      );
+      return;
+    }
+
     if (index == 3) {
       _openProfile();
       return;
@@ -367,33 +417,22 @@ class _DestinationScreenState
       _selectedBottomIndex = index;
     });
 
-    if (index == 1) {
-      _showComingSoon('Bookings');
-    }
-
     if (index == 2) {
-      _showComingSoon('Alerts');
-    }
-  }
+      ScaffoldMessenger.of(context)
+          .hideCurrentSnackBar();
 
-  void _showComingSoon(
-    String pageName,
-  ) {
-    ScaffoldMessenger.of(context)
-        .hideCurrentSnackBar();
-
-    ScaffoldMessenger.of(context)
-        .showSnackBar(
-      SnackBar(
-        content: Text(
-          '$pageName will be available soon.',
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Alerts will be available soon.',
+            style: TextStyle(fontSize: 14),
+          ),
+          behavior: SnackBarBehavior.floating,
+          margin: EdgeInsets.all(16),
         ),
-        behavior:
-            SnackBarBehavior.floating,
-        margin:
-            const EdgeInsets.all(16),
-      ),
-    );
+      );
+    }
   }
 
   // ============================================================
@@ -405,109 +444,70 @@ class _DestinationScreenState
     BuildContext context,
   ) {
     return Scaffold(
-      backgroundColor:
-          const Color(0xFFF4F4F5),
-
+      backgroundColor: const Color(0xFFF7F7F8),
       body: SafeArea(
         bottom: false,
         child: Column(
           children: [
             // ======================================================
-            // TOP SEARCH
+            // SEARCH BAR
             // ======================================================
 
             Padding(
-              padding:
-                  const EdgeInsets.fromLTRB(
-                16,
-                10,
-                16,
-                10,
+              padding: const EdgeInsets.fromLTRB(
+                43,
+                14,
+                43,
+                8,
               ),
-
               child: GestureDetector(
                 onTap: _openSearch,
-
+                behavior: HitTestBehavior.opaque,
                 child: Container(
-                  height: 46,
-
-                  decoration:
-                      BoxDecoration(
+                  height: 47,
+                  decoration: BoxDecoration(
                     color: Colors.white,
-
-                    borderRadius:
-                        BorderRadius.circular(
-                      12,
-                    ),
-
+                    borderRadius: BorderRadius.circular(12),
                     boxShadow: const [
                       BoxShadow(
-                        color:
-                            Color(0x12000000),
-                        blurRadius: 10,
-                        offset:
-                            Offset(0, 3),
+                        color: Color(0x16000000),
+                        blurRadius: 12,
+                        offset: Offset(0, 4),
                       ),
                     ],
                   ),
-
                   child: Row(
                     children: [
-                      const SizedBox(
-                        width: 14,
-                      ),
-
+                      const SizedBox(width: 15),
                       const Icon(
                         Icons.search,
-                        size: 21,
-                        color:
-                            Color(0xFFEF0038),
+                        size: 24,
+                        color: Color(0xFFEF0038),
                       ),
-
-                      const SizedBox(
-                        width: 10,
-                      ),
-
+                      const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           _currentLocation,
-
                           maxLines: 1,
-
-                          overflow:
-                              TextOverflow
-                                  .ellipsis,
-
-                          style:
-                              const TextStyle(
-                            fontSize: 12,
-                            fontWeight:
-                                FontWeight.w500,
-                            color:
-                                Color(0xFF555555),
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF555555),
                           ),
                         ),
                       ),
-
                       GestureDetector(
-                        onTap:
-                            _openFilters,
-
-                        child:
-                            const Padding(
-                          padding:
-                              EdgeInsets
-                                  .symmetric(
+                        onTap: _openFilters,
+                        behavior: HitTestBehavior.opaque,
+                        child: const Padding(
+                          padding: EdgeInsets.symmetric(
                             horizontal: 14,
                           ),
                           child: Icon(
-                            Icons
-                                .tune_outlined,
-                            size: 19,
-                            color:
-                                Color(
-                              0xFF333333,
-                            ),
+                            Icons.tune,
+                            size: 21,
+                            color: Color(0xFF333333),
                           ),
                         ),
                       ),
@@ -523,161 +523,92 @@ class _DestinationScreenState
 
             Expanded(
               child: Stack(
+                clipBehavior: Clip.hardEdge,
                 children: [
-                  // MAP BACKGROUND
-
                   Positioned.fill(
                     child: CustomPaint(
-                      painter:
-                          _CityMapPainter(),
+                      painter: _CityMapPainter(),
                     ),
                   ),
-
-                  // ==================================================
-                  // PRICE MARKERS
-                  // ==================================================
 
                   ..._valetLocations.map(
                     (valet) {
                       return Positioned(
-                        left:
-                            MediaQuery.of(
-                                      context,
-                                    )
-                                    .size
-                                    .width *
+                        left: MediaQuery.sizeOf(context).width *
                                 valet.mapX -
                             25,
-
-                        top:
-                            MediaQuery.of(
-                                      context,
-                                    )
-                                    .size
-                                    .height *
+                        top: MediaQuery.sizeOf(context).height *
+                                0.49 *
                                 valet.mapY -
                             40,
-
-                        child:
-                            _MapPriceMarker(
-                          price:
-                              valet.price,
-                          color:
-                              valet.color,
-                          onTap: () {
-                            _selectValet(
-                              valet,
-                            );
-                          },
+                        child: _MapPriceMarker(
+                          price: valet.price,
+                          color: valet.color,
+                          onTap: () => _selectValet(valet),
                         ),
                       );
                     },
                   ),
 
-                  // ==================================================
-                  // CURRENT LOCATION
-                  // ==================================================
-
                   Positioned(
                     right: 18,
-                    bottom: 210,
-
-                    child:
-                        GestureDetector(
+                    bottom: 205,
+                    child: GestureDetector(
                       onTap: () {
                         setState(() {
                           _currentLocation =
                               'Current location';
                         });
                       },
-
-                      child:
-                          Container(
-                        width: 42,
-                        height: 42,
-
-                        decoration:
-                            BoxDecoration(
-                          color:
-                              Colors.white,
-
-                          shape:
-                              BoxShape.circle,
-
-                          boxShadow: const [
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          boxShadow: [
                             BoxShadow(
-                              color:
-                                  Color(
-                                0x18000000,
-                              ),
-                              blurRadius: 8,
+                              color: Color(0x18000000),
+                              blurRadius: 9,
+                              offset: Offset(0, 3),
                             ),
                           ],
                         ),
-
-                        child:
-                            const Icon(
-                          Icons
-                              .my_location,
-                          size: 20,
-                          color:
-                              Color(
-                            0xFF444444,
-                          ),
+                        child: const Icon(
+                          Icons.my_location,
+                          size: 21,
+                          color: Color(0xFF444444),
                         ),
                       ),
                     ),
                   ),
 
                   // ==================================================
-                  // VALET CARDS
+                  // LARGE VALET CARDS
                   // ==================================================
 
                   Positioned(
                     left: 0,
                     right: 0,
                     bottom: 12,
-
-                    child:
-                        SizedBox(
-                      height: 132,
-
-                      child:
-                          ListView.separated(
-                        scrollDirection:
-                            Axis.horizontal,
-
-                        padding:
-                            const EdgeInsets
-                                .symmetric(
-                          horizontal: 16,
+                    child: SizedBox(
+                      height: 158,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 43,
                         ),
-
-                        itemCount:
-                            _valetLocations
-                                .length,
-
-                        separatorBuilder:
-                            (_, __) =>
-                                const SizedBox(
-                          width: 10,
-                        ),
-
-                        itemBuilder:
-                            (context, index) {
+                        itemCount: _valetLocations.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(width: 12),
+                        itemBuilder: (context, index) {
                           final valet =
-                              _valetLocations[
-                                  index];
+                              _valetLocations[index];
 
-                          return
-                              _ValetCard(
+                          return _ValetCard(
                             valet: valet,
-
-                            onSelect: () {
-                              _selectValet(
-                                valet,
-                              );
-                            },
+                            onSelect: () => _selectValet(valet),
                           );
                         },
                       ),
@@ -693,93 +624,54 @@ class _DestinationScreenState
 
             Container(
               height: 78,
-
-              decoration:
-                  const BoxDecoration(
+              decoration: const BoxDecoration(
                 color: Colors.white,
-
                 border: Border(
                   top: BorderSide(
-                    color:
-                        Color(0xFFE8E8E8),
+                    color: Color(0xFFE9E9EA),
                     width: 1,
                   ),
                 ),
               ),
-
               child: Row(
                 mainAxisAlignment:
-                    MainAxisAlignment
-                        .spaceAround,
-
+                    MainAxisAlignment.spaceAround,
                 children: [
                   _BottomNavItem(
-                    icon:
-                        Icons.home_outlined,
-                    activeIcon:
-                        Icons.home_rounded,
+                    icon: Icons.home_outlined,
+                    activeIcon: Icons.home_rounded,
                     label: 'Home',
                     selected:
-                        _selectedBottomIndex ==
-                            0,
-                    onTap: () {
-                      _onBottomNavigationTap(
-                        0,
-                      );
-                    },
+                        _selectedBottomIndex == 0,
+                    onTap: () =>
+                        _onBottomNavigationTap(0),
                   ),
-
                   _BottomNavItem(
-                    icon:
-                        Icons
-                            .calendar_today_outlined,
-                    activeIcon:
-                        Icons
-                            .calendar_today,
+                    icon: Icons.calendar_today_outlined,
+                    activeIcon: Icons.calendar_today,
                     label: 'Bookings',
                     selected:
-                        _selectedBottomIndex ==
-                            1,
-                    onTap: () {
-                      _onBottomNavigationTap(
-                        1,
-                      );
-                    },
+                        _selectedBottomIndex == 1,
+                    onTap: () =>
+                        _onBottomNavigationTap(1),
                   ),
-
                   _BottomNavItem(
-                    icon:
-                        Icons
-                            .notifications_none_outlined,
-                    activeIcon:
-                        Icons
-                            .notifications,
+                    icon: Icons.notifications_none_outlined,
+                    activeIcon: Icons.notifications,
                     label: 'Alerts',
                     selected:
-                        _selectedBottomIndex ==
-                            2,
-                    onTap: () {
-                      _onBottomNavigationTap(
-                        2,
-                      );
-                    },
+                        _selectedBottomIndex == 2,
+                    onTap: () =>
+                        _onBottomNavigationTap(2),
                   ),
-
                   _BottomNavItem(
-                    icon:
-                        Icons
-                            .person_outline,
-                    activeIcon:
-                        Icons.person,
+                    icon: Icons.person_outline,
+                    activeIcon: Icons.person,
                     label: 'Profile',
                     selected:
-                        _selectedBottomIndex ==
-                            3,
-                    onTap: () {
-                      _onBottomNavigationTap(
-                        3,
-                      );
-                    },
+                        _selectedBottomIndex == 3,
+                    onTap: () =>
+                        _onBottomNavigationTap(3),
                   ),
                 ],
               ),
@@ -844,8 +736,8 @@ class _MapPriceMarker extends StatelessWidget {
           Container(
             padding:
                 const EdgeInsets.symmetric(
-              horizontal: 9,
-              vertical: 5,
+              horizontal: 10,
+              vertical: 6,
             ),
 
             decoration:
@@ -873,7 +765,7 @@ class _MapPriceMarker extends StatelessWidget {
 
               style:
                   const TextStyle(
-                fontSize: 10,
+                fontSize: 12,
                 fontWeight:
                     FontWeight.w700,
                 color: Colors.white,
@@ -1009,235 +901,126 @@ class _ValetCard
     BuildContext context,
   ) {
     return Container(
-      width: 205,
-
-      padding:
-          const EdgeInsets.fromLTRB(
-        12,
-        10,
-        12,
-        9,
+      width: 285,
+      padding: const EdgeInsets.fromLTRB(
+        18,
+        15,
+        18,
+        13,
       ),
-
-      decoration:
-          BoxDecoration(
+      decoration: BoxDecoration(
         color: Colors.white,
-
-        borderRadius:
-            BorderRadius.circular(
-          14,
-        ),
-
+        borderRadius: BorderRadius.circular(17),
         boxShadow: const [
           BoxShadow(
-            color:
-                Color(0x18000000),
-            blurRadius: 12,
-            offset:
-                Offset(0, 4),
+            color: Color(0x18000000),
+            blurRadius: 16,
+            offset: Offset(0, 5),
           ),
         ],
       ),
-
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ========================================================
-          // TITLE + RATING
-          // ========================================================
-
           Row(
             children: [
               Expanded(
                 child: Text(
                   valet.name,
-
                   maxLines: 1,
-
-                  overflow:
-                      TextOverflow.ellipsis,
-
-                  style:
-                      const TextStyle(
-                    fontSize: 13,
-                    fontWeight:
-                        FontWeight.w700,
-                    color:
-                        Color(0xFF252525),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF252525),
                   ),
                 ),
               ),
-
-              const SizedBox(
-                width: 5,
-              ),
-
+              const SizedBox(width: 7),
               const Icon(
                 Icons.star,
-                size: 13,
-                color:
-                    Color(0xFFE6A900),
+                size: 17,
+                color: Color(0xFFE6A900),
               ),
-
-              const SizedBox(
-                width: 2,
-              ),
-
+              const SizedBox(width: 3),
               Text(
                 valet.rating,
-
-                style:
-                    const TextStyle(
-                  fontSize: 10,
-                  fontWeight:
-                      FontWeight.w600,
-                  color:
-                      Color(0xFF333333),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF333333),
                 ),
               ),
             ],
           ),
 
-          const SizedBox(
-            height: 4,
-          ),
-
-          // ========================================================
-          // ADDRESS
-          // ========================================================
+          const SizedBox(height: 6),
 
           Text(
             valet.address,
-
             maxLines: 1,
-
-            overflow:
-                TextOverflow.ellipsis,
-
-            style:
-                const TextStyle(
-              fontSize: 9.5,
-              color:
-                  Color(0xFF888888),
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF888888),
             ),
           ),
 
           const Spacer(),
 
-          // ========================================================
-          // PRICE + DISTANCE + SELECT
-          // ========================================================
-
           Row(
-            crossAxisAlignment:
-                CrossAxisAlignment.end,
-
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              Column(
-                crossAxisAlignment:
-                    CrossAxisAlignment
-                        .start,
-
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        valet.price,
-
-                        style:
-                            const TextStyle(
-                          fontSize: 14,
-                          fontWeight:
-                              FontWeight.w700,
-                          color:
-                              Color(
-                            0xFFEF0038,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(
-                        width: 4,
-                      ),
-
-                      const Text(
-                        '/ 2 hrs',
-
-                        style:
-                            TextStyle(
-                          fontSize: 9,
-                          color:
-                              Color(
-                            0xFF777777,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const SizedBox(
-                    height: 2,
-                  ),
-
-                  Text(
-                    valet.distance,
-
-                    style:
-                        const TextStyle(
-                      fontSize: 9,
-                      color:
-                          Color(0xFF888888),
-                    ),
-                  ),
-                ],
+              Text(
+                valet.price,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFFEF0038),
+                ),
               ),
-
+              const SizedBox(width: 4),
+              const Text(
+                '/ 2 hrs',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF777777),
+                ),
+              ),
               const Spacer(),
-
               GestureDetector(
                 onTap: onSelect,
-
+                behavior: HitTestBehavior.opaque,
                 child: Container(
-                  padding:
-                      const EdgeInsets
-                          .symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 17,
+                    vertical: 9,
                   ),
-
-                  decoration:
-                      BoxDecoration(
-                    color:
-                        const Color(
-                      0xFFFFE9EE,
-                    ),
-
-                    borderRadius:
-                        BorderRadius.circular(
-                      7,
-                    ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFE9EE),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-
-                  child:
-                      const Text(
+                  child: const Text(
                     'Select',
-
-                    style:
-                        TextStyle(
-                      fontSize: 10,
-                      fontWeight:
-                          FontWeight.w700,
-                      color:
-                          Color(
-                        0xFFEF0038,
-                      ),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFEF0038),
                     ),
                   ),
                 ),
               ),
             ],
+          ),
+
+          const SizedBox(height: 5),
+
+          Text(
+            valet.distance,
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF888888),
+            ),
           ),
         ],
       ),
@@ -1276,7 +1059,7 @@ class _BottomNavItem
           HitTestBehavior.opaque,
 
       child: SizedBox(
-        width: 70,
+        width: 76,
 
         child: Column(
           mainAxisAlignment:
@@ -1308,7 +1091,7 @@ class _BottomNavItem
 
               style:
                   TextStyle(
-                fontSize: 9,
+                fontSize: 11,
 
                 fontWeight:
                     selected
@@ -1560,346 +1343,185 @@ class _CityMapPainter
     Canvas canvas,
     Size size,
   ) {
-    // ------------------------------------------------------------
-    // BACKGROUND
-    // ------------------------------------------------------------
-
-    final Paint backgroundPaint =
-        Paint()
-          ..color =
-              const Color(0xFFF1F2F2);
+    final Paint background = Paint()
+      ..color = const Color(0xFFF1F2F2);
 
     canvas.drawRect(
-      Offset.zero &
-          size,
-      backgroundPaint,
+      Offset.zero & size,
+      background,
     );
 
-    // ------------------------------------------------------------
-    // CITY BLOCKS
-    // ------------------------------------------------------------
+    // Subtle water / river on the right.
+    final Paint water = Paint()
+      ..color = const Color(0xFFE1E8E9)
+      ..style = PaintingStyle.fill;
 
-    final Paint blockPaint =
-        Paint()
-          ..color =
-              const Color(0xFFD8DADB)
-          ..style =
-              PaintingStyle.fill;
+    final Path river = Path()
+      ..moveTo(size.width * 0.82, 0)
+      ..cubicTo(
+        size.width * 0.73,
+        size.height * 0.18,
+        size.width * 0.88,
+        size.height * 0.30,
+        size.width * 0.75,
+        size.height * 0.48,
+      )
+      ..cubicTo(
+        size.width * 0.67,
+        size.height * 0.62,
+        size.width * 0.86,
+        size.height * 0.77,
+        size.width * 0.79,
+        size.height,
+      )
+      ..lineTo(size.width, size.height)
+      ..lineTo(size.width, 0)
+      ..close();
 
-    final math.Random random =
-        math.Random(14);
+    canvas.drawPath(river, water);
 
-    final List<Rect> blocks = [];
+    // City blocks.
+    final math.Random random = math.Random(31);
+    final Paint blockPaint = Paint()
+      ..color = const Color(0xFFD7D9DA)
+      ..style = PaintingStyle.fill;
 
-    for (int i = 0; i < 85; i++) {
-      final double width =
-          8 + random.nextDouble() * 22;
+    for (int i = 0; i < 115; i++) {
+      final double w = 7 + random.nextDouble() * 18;
+      final double h = 5 + random.nextDouble() * 14;
 
-      final double height =
-          5 + random.nextDouble() * 18;
+      final double x =
+          random.nextDouble() * (size.width * 0.76 - w);
+      final double y =
+          random.nextDouble() * (size.height - h);
 
-      final double left =
-          random.nextDouble() *
-              (size.width - width);
-
-      final double top =
-          random.nextDouble() *
-              (size.height - height);
-
-      final Rect rect =
-          Rect.fromLTWH(
-        left,
-        top,
-        width,
-        height,
-      );
-
-      blocks.add(rect);
-    }
-
-    for (final Rect block in blocks) {
       canvas.drawRect(
-        block,
+        Rect.fromLTWH(x, y, w, h),
         blockPaint,
       );
     }
 
-    // ------------------------------------------------------------
-    // RIVER
-    // ------------------------------------------------------------
+    // Organic city roads.
+    final Paint road = Paint()
+      ..color = const Color(0xFFC6C9CA)
+      ..strokeWidth = 1.0
+      ..style = PaintingStyle.stroke;
 
-    final Paint riverPaint =
-        Paint()
-          ..color =
-              const Color(0xFFDCE4E5)
-          ..style =
-              PaintingStyle.fill;
+    final Paint mainRoad = Paint()
+      ..color = const Color(0xFFB9BDBE)
+      ..strokeWidth = 2.2
+      ..style = PaintingStyle.stroke;
 
-    final Path river =
-        Path();
-
-    river.moveTo(
-      size.width * 0.82,
-      0,
-    );
-
-    river.cubicTo(
-      size.width * 0.72,
-      size.height * 0.15,
-      size.width * 0.92,
-      size.height * 0.25,
-      size.width * 0.78,
-      size.height * 0.40,
-    );
-
-    river.cubicTo(
-      size.width * 0.65,
-      size.height * 0.55,
-      size.width * 0.92,
-      size.height * 0.66,
-      size.width * 0.80,
-      size.height * 0.82,
-    );
-
-    river.cubicTo(
-      size.width * 0.74,
-      size.height * 0.91,
-      size.width * 0.88,
-      size.height * 0.96,
-      size.width * 0.92,
-      size.height,
-    );
-
-    river.lineTo(
-      size.width,
-      size.height,
-    );
-
-    river.lineTo(
-      size.width,
-      0,
-    );
-
-    river.close();
-
-    canvas.drawPath(
-      river,
-      riverPaint,
-    );
-
-    // ------------------------------------------------------------
-    // ROADS
-    // ------------------------------------------------------------
-
-    final Paint roadPaint =
-        Paint()
-          ..color =
-              const Color(0xFFBFC2C3)
-          ..strokeWidth = 1.4
-          ..style =
-              PaintingStyle.stroke;
-
-    final Paint mainRoadPaint =
-        Paint()
-          ..color =
-              const Color(0xFFB2B5B6)
-          ..strokeWidth = 2.5
-          ..style =
-              PaintingStyle.stroke;
-
-    // Vertical roads
-
-    for (int i = 0; i < 10; i++) {
+    // Vertical curved streets.
+    for (int i = 0; i < 8; i++) {
       final double x =
-          size.width *
-              (0.10 + i * 0.08);
+          size.width * (0.10 + i * 0.085);
 
-      final Path path =
-          Path();
+      final Path path = Path()
+        ..moveTo(x, size.height)
+        ..cubicTo(
+          x - 12,
+          size.height * 0.74,
+          x + 18,
+          size.height * 0.42,
+          x + 3,
+          0,
+        );
 
-      path.moveTo(
-        x,
-        size.height,
-      );
-
-      path.cubicTo(
-        x - 15,
-        size.height * 0.70,
-        x + 22,
-        size.height * 0.45,
-        x + 3,
-        0,
-      );
-
-      canvas.drawPath(
-        path,
-        roadPaint,
-      );
+      canvas.drawPath(path, road);
     }
 
-    // Horizontal roads
-
+    // Horizontal streets.
     for (int i = 0; i < 9; i++) {
       final double y =
-          size.height *
-              (0.10 + i * 0.09);
+          size.height * (0.08 + i * 0.10);
 
-      final Path path =
-          Path();
+      final Path path = Path()
+        ..moveTo(0, y)
+        ..cubicTo(
+          size.width * 0.27,
+          y - 13,
+          size.width * 0.58,
+          y + 16,
+          size.width,
+          y - 4,
+        );
 
-      path.moveTo(
-        0,
-        y,
-      );
-
-      path.cubicTo(
-        size.width * 0.30,
-        y - 15,
-        size.width * 0.60,
-        y + 20,
-        size.width,
-        y - 3,
-      );
-
-      canvas.drawPath(
-        path,
-        roadPaint,
-      );
+      canvas.drawPath(path, road);
     }
 
-    // ------------------------------------------------------------
-    // MAIN DIAGONAL ROADS
-    // ------------------------------------------------------------
+    // Main diagonal roads like the reference.
+    final Path diagonalA = Path()
+      ..moveTo(size.width * 0.04, size.height * 0.86)
+      ..cubicTo(
+        size.width * 0.24,
+        size.height * 0.63,
+        size.width * 0.46,
+        size.height * 0.40,
+        size.width * 0.73,
+        size.height * 0.08,
+      );
 
-    final Path diagonal1 =
-        Path();
+    final Path diagonalB = Path()
+      ..moveTo(size.width * 0.00, size.height * 0.22)
+      ..cubicTo(
+        size.width * 0.26,
+        size.height * 0.35,
+        size.width * 0.52,
+        size.height * 0.63,
+        size.width * 0.78,
+        size.height * 0.87,
+      );
 
-    diagonal1.moveTo(
-      size.width * 0.05,
-      size.height * 0.82,
+    canvas.drawPath(diagonalA, mainRoad);
+    canvas.drawPath(diagonalB, mainRoad);
+
+    // Central city network.
+    final Offset center = Offset(
+      size.width * 0.47,
+      size.height * 0.50,
     );
 
-    diagonal1.cubicTo(
-      size.width * 0.28,
-      size.height * 0.62,
-      size.width * 0.46,
-      size.height * 0.42,
-      size.width * 0.75,
-      size.height * 0.10,
-    );
-
-    canvas.drawPath(
-      diagonal1,
-      mainRoadPaint,
-    );
-
-    final Path diagonal2 =
-        Path();
-
-    diagonal2.moveTo(
-      size.width * 0.02,
-      size.height * 0.20,
-    );
-
-    diagonal2.cubicTo(
-      size.width * 0.32,
-      size.height * 0.34,
-      size.width * 0.58,
-      size.height * 0.65,
-      size.width * 0.84,
-      size.height * 0.85,
-    );
-
-    canvas.drawPath(
-      diagonal2,
-      mainRoadPaint,
-    );
-
-    // ------------------------------------------------------------
-    // CENTRAL CIRCLE / CITY
-    // ------------------------------------------------------------
-
-    final Offset center =
-        Offset(
-      size.width * 0.46,
-      size.height * 0.48,
-    );
-
-    final Paint circlePaint =
-        Paint()
-          ..color =
-              const Color(0xFFD1D3D4)
-          ..style =
-              PaintingStyle.stroke
-          ..strokeWidth = 1.1;
+    final Paint ringPaint = Paint()
+      ..color = const Color(0xFFD0D3D4)
+      ..strokeWidth = 1
+      ..style = PaintingStyle.stroke;
 
     for (int i = 1; i <= 4; i++) {
       canvas.drawCircle(
         center,
         i *
-            math.min(
-              size.width,
-              size.height,
-            ) *
+            math.min(size.width, size.height) *
             0.075,
-        circlePaint,
+        ringPaint,
       );
     }
 
-    // ------------------------------------------------------------
-    // SMALL STREET LINES
-    // ------------------------------------------------------------
+    final Paint radialPaint = Paint()
+      ..color = const Color(0xFFD0D3D4)
+      ..strokeWidth = 0.75;
 
-    final Paint streetPaint =
-        Paint()
-          ..color =
-              const Color(0xFFC7C9CA)
-          ..strokeWidth = 0.7;
-
-    for (int i = 0; i < 22; i++) {
+    for (int i = 0; i < 20; i++) {
       final double angle =
-          i *
-              math.pi /
-              11;
+          i * math.pi / 10;
 
-      final double startRadius =
-          math.min(
-                size.width,
-                size.height,
-              ) *
-              0.07;
-
-      final double endRadius =
-          math.min(
-                size.width,
-                size.height,
-              ) *
-              0.30;
-
-      final Offset start =
-          Offset(
-        center.dx +
-            math.cos(angle) *
-                startRadius,
-        center.dy +
-            math.sin(angle) *
-                startRadius,
-      );
-
-      final Offset end =
-          Offset(
-        center.dx +
-            math.cos(angle) *
-                endRadius,
-        center.dy +
-            math.sin(angle) *
-                endRadius,
-      );
+      final double radius =
+          math.min(size.width, size.height) * 0.31;
 
       canvas.drawLine(
-        start,
-        end,
-        streetPaint,
+        Offset(
+          center.dx +
+              math.cos(angle) * 20,
+          center.dy +
+              math.sin(angle) * 20,
+        ),
+        Offset(
+          center.dx +
+              math.cos(angle) * radius,
+          center.dy +
+              math.sin(angle) * radius,
+        ),
+        radialPaint,
       );
     }
   }
