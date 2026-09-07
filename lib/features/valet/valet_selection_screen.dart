@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../booking/booking_details_screen.dart';
+import '../booking/booking_scheduled_screen.dart';
 
 class ValetSelectionScreen extends StatefulWidget {
   final String destinationName;
@@ -433,10 +434,7 @@ class _ValetSelectionScreenState
                   colors: [
                     Colors.transparent,
 
-                    Colors.black
-                        .withValues(
-                      alpha: 0.18,
-                    ),
+                    Colors.black.withOpacity(0.18),
                   ],
                 ),
               ),
@@ -953,7 +951,7 @@ class _ValetSelectionScreenState
             child:
                 OutlinedButton(
               onPressed:
-                  _showCalendar,
+                  () => _showScheduleSheet(valet),
 
               style:
                   OutlinedButton
@@ -1005,386 +1003,525 @@ class _ValetSelectionScreenState
   }
 
   // ============================================================
-  // CALENDAR
+  // SCHEDULE BOOKING
   // ============================================================
 
-  Future<void> _showCalendar() async {
-    final DateTime now = DateTime.now();
+  Future<void> _showScheduleSheet(Valet valet) async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
 
-    // ----------------------------------------------------------
-    // STEP 1: SELECT DAY
-    // ----------------------------------------------------------
+    DateTime selectedDate = _scheduledDateTime != null &&
+            !_scheduledDateTime!.isBefore(today)
+        ? DateTime(
+            _scheduledDateTime!.year,
+            _scheduledDateTime!.month,
+            _scheduledDateTime!.day,
+          )
+        : today;
 
-    final DateTime? selectedDate = await showDatePicker(
-      context: context,
+    TimeOfDay? selectedTime =
+        _scheduledDateTime != null &&
+                selectedDate.year == _scheduledDateTime!.year &&
+                selectedDate.month == _scheduledDateTime!.month &&
+                selectedDate.day == _scheduledDateTime!.day
+            ? TimeOfDay.fromDateTime(_scheduledDateTime!)
+            : null;
 
-      initialDate:
-          _scheduledDateTime != null &&
-                  !_scheduledDateTime!.isBefore(
-                    DateTime(
-                      now.year,
-                      now.month,
-                      now.day,
-                    ),
-                  )
-              ? _scheduledDateTime!
-              : now,
-
-      firstDate:
-          DateTime(
-        now.year,
-        now.month,
-        now.day,
-      ),
-
-      lastDate:
-          now.add(
-        const Duration(
-          days: 90,
-        ),
-      ),
-
-      helpText:
-          'Select date',
-
-      cancelText:
-          'Cancel',
-
-      confirmText:
-          'Next',
-
-      builder:
-          (
-        context,
-        child,
-      ) {
-        return Theme(
-          data:
-              Theme.of(
-            context,
-          ).copyWith(
-            colorScheme:
-                const ColorScheme.light(
-              primary:
-                  Color(
-                0xFFEF0038,
-              ),
-            ),
-          ),
-
-          child:
-              child!,
-        );
-      },
+    final dates = List.generate(
+      5,
+      (index) => today.add(Duration(days: index)),
     );
 
-    if (selectedDate == null ||
-        !mounted) {
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // STEP 2: SELECT TIME SLOT
-    // ----------------------------------------------------------
-
-    final List<TimeOfDay> timeSlots = [];
-
-    for (int hour = 10;
-        hour <= 23;
-        hour++) {
-      for (int minute = 0;
-          minute < 60;
-          minute += 30) {
-        if (hour == 23 &&
-            minute > 0) {
-          continue;
-        }
-
-        timeSlots.add(
-          TimeOfDay(
-            hour: hour,
-            minute: minute,
-          ),
-        );
+    final timeSlots = <TimeOfDay>[];
+    for (int hour = 10; hour <= 23; hour++) {
+      for (int minute = 0; minute < 60; minute += 30) {
+        if (hour == 23 && minute > 30) continue;
+        timeSlots.add(TimeOfDay(hour: hour, minute: minute));
       }
     }
 
-    TimeOfDay? selectedTime;
-
-    if (_scheduledDateTime != null &&
-        selectedDate.year ==
-            _scheduledDateTime!.year &&
-        selectedDate.month ==
-            _scheduledDateTime!.month &&
-        selectedDate.day ==
-            _scheduledDateTime!.day) {
-      selectedTime =
-          TimeOfDay.fromDateTime(
-        _scheduledDateTime!,
-      );
-    }
-
-    final TimeOfDay? pickedTime =
-        await showDialog<TimeOfDay>(
+    final result = await showModalBottomSheet<DateTime>(
       context: context,
-
-      builder:
-          (dialogContext) {
-        TimeOfDay? tempSelected =
-            selectedTime;
-
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black.withOpacity(0.62),
+      builder: (sheetContext) {
         return StatefulBuilder(
-          builder:
-              (
-            context,
-            setDialogState,
-          ) {
-            return AlertDialog(
-              title:
-                  const Text(
-                'Select time slot',
-                style:
-                    TextStyle(
-                  fontWeight:
-                      FontWeight.w700,
-                ),
-              ),
+          builder: (context, setSheetState) {
+            bool isPastTime(DateTime date, TimeOfDay time) {
+              if (date.year != today.year ||
+                  date.month != today.month ||
+                  date.day != today.day) {
+                return false;
+              }
 
-              content:
-                  SizedBox(
-                width:
-                    double.maxFinite,
+              return DateTime(
+                date.year,
+                date.month,
+                date.day,
+                time.hour,
+                time.minute,
+              ).isBefore(DateTime.now());
+            }
 
-                child:
-                    GridView.builder(
-                  shrinkWrap:
-                      true,
+            String dateLabel(DateTime date) {
+              if (date.year == today.year &&
+                  date.month == today.month &&
+                  date.day == today.day) {
+                return 'Today';
+              }
 
-                  itemCount:
-                      timeSlots.length,
+              const weekdays = [
+                'Mon',
+                'Tue',
+                'Wed',
+                'Thu',
+                'Fri',
+                'Sat',
+                'Sun',
+              ];
+              return weekdays[date.weekday - 1];
+            }
 
-                  gridDelegate:
-                      const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 8,
-                    mainAxisSpacing: 8,
-                    childAspectRatio: 2.2,
+            String timeLabel(TimeOfDay time) {
+              return time.format(context);
+            }
+
+            final priceText = _selectedPricingTier == 0
+                ? '₹90 / 2 hrs'
+                : _selectedPricingTier == 1
+                    ? '₹120 / 4 hrs'
+                    : '₹150 / Full Day';
+
+            return SafeArea(
+              top: false,
+              child: Container(
+                height: MediaQuery.of(context).size.height * 0.66,
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(
+                    top: Radius.circular(22),
                   ),
-
-                  itemBuilder:
-                      (
-                    context,
-                    index,
-                  ) {
-                    final TimeOfDay slot =
-                        timeSlots[index];
-
-                    final bool isSelected =
-                        tempSelected != null &&
-                        tempSelected!.hour ==
-                            slot.hour &&
-                        tempSelected!.minute ==
-                            slot.minute;
-
-                    return InkWell(
-                      borderRadius:
-                          BorderRadius.circular(
-                        8,
+                ),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 42,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFD0D0D0),
+                        borderRadius: BorderRadius.circular(10),
                       ),
+                    ),
+                    const SizedBox(height: 12),
 
-                      onTap: () {
-                        setDialogState(() {
-                          tempSelected =
-                              slot;
-                        });
-                      },
-
-                      child:
-                          Container(
-                        alignment:
-                            Alignment.center,
-
-                        decoration:
-                            BoxDecoration(
-                          color:
-                              isSelected
-                                  ? const Color(
-                                      0xFFFFE9EE,
-                                    )
-                                  : const Color(
-                                      0xFFF5F5F6,
-                                    ),
-
-                          borderRadius:
-                              BorderRadius.circular(
-                            8,
+                    // TITLE
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 5),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  valet.name.trim().isEmpty
+                                      ? 'UB City Mall Valet'
+                                      : valet.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 19,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF222222),
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  priceText,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFEF0038),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-
-                          border:
-                              Border.all(
-                            color:
-                                isSelected
-                                    ? const Color(
-                                        0xFFEF0038,
-                                      )
-                                    : Colors.transparent,
-
-                            width:
-                                1.2,
+                          GestureDetector(
+                            onTap: () => Navigator.pop(sheetContext),
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              decoration: const BoxDecoration(
+                                color: Color(0xFFF4F4F5),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(
+                                Icons.close,
+                                size: 17,
+                                color: Color(0xFF333333),
+                              ),
+                            ),
                           ),
-                        ),
+                        ],
+                      ),
+                    ),
 
-                        child:
-                            Text(
-                          slot.format(
-                            context,
-                          ),
+                    // CONTENT
+                    Expanded(
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'SELECT DATE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF777777),
+                              ),
+                            ),
+                            const SizedBox(height: 7),
 
-                          style:
-                              TextStyle(
-                            fontSize: 19.6,
+                            // DATE SELECTOR
+                            SizedBox(
+                              height: 55,
+                              child: ListView.separated(
+                                scrollDirection: Axis.horizontal,
+                                physics: const BouncingScrollPhysics(),
+                                itemCount: dates.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(width: 6),
+                                itemBuilder: (context, index) {
+                                  final date = dates[index];
+                                  final selected =
+                                      date.year == selectedDate.year &&
+                                      date.month == selectedDate.month &&
+                                      date.day == selectedDate.day;
 
-                            fontWeight:
-                                isSelected
-                                    ? FontWeight.w700
-                                    : FontWeight.w500,
-
-                            color:
-                                isSelected
-                                    ? const Color(
-                                        0xFFEF0038,
-                                      )
-                                    : const Color(
-                                        0xFF333333,
+                                  return GestureDetector(
+                                    onTap: () {
+                                      setSheetState(() {
+                                        selectedDate = date;
+                                        if (selectedTime != null &&
+                                            isPastTime(date, selectedTime!)) {
+                                          selectedTime = null;
+                                        }
+                                      });
+                                    },
+                                    child: AnimatedContainer(
+                                      duration:
+                                          const Duration(milliseconds: 150),
+                                      width: 54,
+                                      decoration: BoxDecoration(
+                                        color: selected
+                                            ? const Color(0xFFEF0038)
+                                            : const Color(0xFFF2F2F4),
+                                        borderRadius:
+                                            BorderRadius.circular(9),
                                       ),
-                          ),
+                                      child: Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            dateLabel(date),
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.w700,
+                                              color: selected
+                                                  ? Colors.white
+                                                  : const Color(0xFF333333),
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '${date.day} ${_monthName(date.month)}',
+                                            style: TextStyle(
+                                              fontSize: 10.5,
+                                              color: selected
+                                                  ? Colors.white
+                                                  : const Color(0xFF777777),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+
+                            const SizedBox(height: 18),
+
+                            const Text(
+                              'SELECT TIME SLOT',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF777777),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+
+                            // TIME SLOTS
+                            ...timeSlots.map((slot) {
+                              final disabled =
+                                  isPastTime(selectedDate, slot);
+                              final selected = selectedTime != null &&
+                                  selectedTime!.hour == slot.hour &&
+                                  selectedTime!.minute == slot.minute;
+
+                              return Padding(
+                                padding: const EdgeInsets.only(bottom: 7),
+                                child: GestureDetector(
+                                  onTap: disabled
+                                      ? null
+                                      : () {
+                                          setSheetState(() {
+                                            selectedTime = slot;
+                                          });
+                                        },
+                                  child: Container(
+                                    height: 41,
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: disabled
+                                          ? const Color(0xFFF7F7F7)
+                                          : selected
+                                              ? const Color(0xFFFFEEF2)
+                                              : Colors.white,
+                                      borderRadius: BorderRadius.circular(9),
+                                      border: Border.all(
+                                        color: disabled
+                                            ? const Color(0xFFE8E8E8)
+                                            : selected
+                                                ? const Color(0xFFEF0038)
+                                                : const Color(0xFFEDEDED),
+                                        width: selected ? 1.2 : 1,
+                                      ),
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            timeLabel(slot),
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: selected
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500,
+                                              color: disabled
+                                                  ? const Color(0xFFAAAAAA)
+                                                  : selected
+                                                      ? const Color(0xFFEF0038)
+                                                      : const Color(0xFF222222),
+                                            ),
+                                          ),
+                                        ),
+                                        Container(
+                                          width: 17,
+                                          height: 17,
+                                          decoration: BoxDecoration(
+                                            shape: BoxShape.circle,
+                                            color: selected
+                                                ? const Color(0xFFEF0038)
+                                                : Colors.transparent,
+                                            border: Border.all(
+                                              color: disabled
+                                                  ? const Color(0xFFCCCCCC)
+                                                  : selected
+                                                      ? const Color(0xFFEF0038)
+                                                      : const Color(0xFF777777),
+                                              width: 1.2,
+                                            ),
+                                          ),
+                                          child: selected
+                                              ? const Icon(
+                                                  Icons.check,
+                                                  size: 11,
+                                                  color: Colors.white,
+                                                )
+                                              : null,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }),
+                          ],
                         ),
                       ),
-                    );
-                  },
+                    ),
+
+                    // CONFIRM AREA
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(16, 7, 16, 10),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        border: Border(
+                          top: BorderSide(color: Color(0xFFEDEDED)),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          if (selectedTime != null) ...[
+                            Text.rich(
+                              TextSpan(
+                                text: 'Valet reserved for ',
+                                style: const TextStyle(
+                                  fontSize: 10.5,
+                                  color: Color(0xFF777777),
+                                ),
+                                children: [
+                                  TextSpan(
+                                    text:
+                                        '${dateLabel(selectedDate)}, ${selectedDate.day} ${_monthName(selectedDate.month)}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF222222),
+                                    ),
+                                  ),
+                                  const TextSpan(text: ' at '),
+                                  TextSpan(
+                                    text: timeLabel(selectedTime!),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF222222),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          SizedBox(
+                            width: double.infinity,
+                            height: 42,
+                            child: ElevatedButton(
+                              onPressed: selectedTime == null
+                                  ? null
+                                  : () {
+                                      final scheduled = DateTime(
+                                        selectedDate.year,
+                                        selectedDate.month,
+                                        selectedDate.day,
+                                        selectedTime!.hour,
+                                        selectedTime!.minute,
+                                      );
+                                      Navigator.pop(
+                                        sheetContext,
+                                        scheduled,
+                                      );
+                                    },
+                              style: ElevatedButton.styleFrom(
+                                elevation: 0,
+                                backgroundColor: const Color(0xFFEF0038),
+                                disabledBackgroundColor:
+                                    const Color(0xFFE4E4E4),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(11),
+                                ),
+                              ),
+                              child: const Text(
+                                'Confirm Schedule',
+                                style: TextStyle(
+                                  fontSize: 14.5,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-
-              actions: [
-                TextButton(
-                  onPressed: () {
-                    Navigator.pop(
-                      dialogContext,
-                    );
-                  },
-
-                  child:
-                      const Text(
-                    'Cancel',
-                    style:
-                        TextStyle(
-                      color:
-                          Color(
-                        0xFFEF0038,
-                      ),
-                    ),
-                  ),
-                ),
-
-                TextButton(
-                  onPressed:
-                      tempSelected == null
-                          ? null
-                          : () {
-                              Navigator.pop(
-                                dialogContext,
-                                tempSelected,
-                              );
-                            },
-
-                  child:
-                      const Text(
-                    'Done',
-                    style:
-                        TextStyle(
-                      color:
-                          Color(
-                        0xFFEF0038,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
             );
           },
         );
       },
     );
 
-    if (pickedTime == null ||
-        !mounted) {
-      return;
-    }
-
-    // ----------------------------------------------------------
-    // SAVE DATE + TIME SLOT
-    // ----------------------------------------------------------
-
-    final DateTime scheduledDateTime =
-        DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
-      pickedTime.hour,
-      pickedTime.minute,
-    );
+    if (result == null || !mounted) return;
 
     setState(() {
-      _scheduledDateTime =
-          scheduledDateTime;
+      _scheduledDateTime = result;
     });
 
-    _showMessage(
-      'Scheduled for ${_formatScheduledDate(scheduledDateTime)}',
+    // Open the dedicated scheduled-booking confirmation page.
+    if (!mounted) return;
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BookingScheduledScreen(
+          bookingId: _generateSixDigitBookingId(),
+          valetName: valet.name.trim().isEmpty
+              ? 'QuickPark Valet'
+              : valet.name,
+          destinationName: widget.destinationName.trim().isEmpty
+              ? 'UB City Mall Valet'
+              : widget.destinationName,
+          scheduledDateTime: result,
+          price: _selectedPricingTier == 0
+              ? 90
+              : _selectedPricingTier == 1
+                  ? 120
+                  : 150,
+          duration: _selectedPricingTier == 0
+              ? '2 hrs'
+              : _selectedPricingTier == 1
+                  ? '4 hrs'
+                  : 'Full Day',
+        ),
+      ),
     );
   }
 
-  String _formatScheduledDate(
-    DateTime dateTime,
-  ) {
-    const List<String> weekdays = [
-      'Mon',
-      'Tue',
-      'Wed',
-      'Thu',
-      'Fri',
-      'Sat',
-      'Sun',
-    ];
+  String _generateSixDigitBookingId() {
+    final value =
+        DateTime.now().millisecondsSinceEpoch % 1000000;
 
-    final String day =
-        weekdays[dateTime.weekday - 1];
-
-    final String time =
-        TimeOfDay.fromDateTime(
-      dateTime,
-    ).format(context);
-
-    return '$day, ${dateTime.day} ${_monthName(dateTime.month)} at $time';
+    return value.toString().padLeft(6, '0');
   }
 
+  // ============================================================
+  // SCHEDULE HELPERS
+  // ============================================================
+
   String _monthName(int month) {
-    const List<String> months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
+    const months = <String>[
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
 
+    if (month < 1 || month > 12) {
+      return '';
+    }
+
     return months[month - 1];
+  }
+
+  String _formatScheduledDate(DateTime dateTime) {
+    final time = TimeOfDay.fromDateTime(dateTime);
+    final hour = time.hourOfPeriod == 0 ? 12 : time.hourOfPeriod;
+    final minute = time.minute.toString().padLeft(2, '0');
+    final period = time.period == DayPeriod.am ? 'AM' : 'PM';
+
+    return '${dateTime.day} ${_monthName(dateTime.month)} at $hour:$minute $period';
   }
 
   // ============================================================

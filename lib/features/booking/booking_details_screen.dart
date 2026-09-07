@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'booking_confirmed_screen.dart';
+import 'payment_screen.dart';
 
 class BookingDetailsScreen extends StatefulWidget {
   // ============================================================
@@ -483,10 +484,47 @@ class _BookingDetailsScreenState
   }
 
   // ============================================================
+  // OPEN PAYMENT SCREEN
+  // ============================================================
+
+  Future<void> _openPaymentScreen() async {
+    final BookingVehicle? vehicle = _selectedVehicle;
+
+    if (vehicle == null) {
+      _showMessage('Please select a vehicle first.');
+      return;
+    }
+
+    if (_isBooking) {
+      return;
+    }
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => PaymentScreen(
+          valetName: widget.valetName,
+          destinationName: widget.destinationName,
+          vehicle: vehicle.number,
+          carModel: vehicle.model,
+          amount: widget.price,
+          onPay: (paymentContext) async {
+            await _confirmBooking(
+              navigationContext: paymentContext,
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
   // CONFIRM BOOKING
   // ============================================================
 
-  Future<void> _confirmBooking() async {
+  Future<void> _confirmBooking({
+    BuildContext? navigationContext,
+  }) async {
     final User? user =
         FirebaseAuth.instance.currentUser;
 
@@ -662,7 +700,7 @@ class _BookingDetailsScreenState
       // ========================================================
 
       Navigator.pushReplacement(
-        context,
+        navigationContext ?? context,
         MaterialPageRoute(
           builder: (_) =>
               BookingConfirmedScreen(
@@ -1670,7 +1708,7 @@ class _BookingDetailsScreenState
                               _selectedVehicle ==
                                   null)
                           ? null
-                          : _confirmBooking,
+                          : _openPaymentScreen,
 
                   style:
                       ElevatedButton

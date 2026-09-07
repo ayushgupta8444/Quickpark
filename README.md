@@ -1,155 +1,156 @@
 # QuickPark
 
-QuickPark is a Flutter mobile application for booking trusted valet
-parking.
+QuickPark is a Flutter mobile application for discovering valet parking locations, selecting vehicles, making/scheduling bookings, viewing booking status, and managing bookings.
 
-## Technology Stack
+## Tech Stack
 
--   **Frontend:** Flutter / Dart
--   **Authentication:** Firebase Authentication + Google Sign-In
--   **Backend:** Node.js + Express.js
--   **Database:** PostgreSQL
--   **API communication:** HTTP REST API
-
-Architecture:
-
-``` text
-Flutter App
-    |
-    | HTTP REST API
-    v
-Express.js Backend
-    |
-    | SQL
-    v
-PostgreSQL
-```
-
-Firebase handles authentication. Application data such as profiles,
-vehicles, valets and bookings is handled by the Express + PostgreSQL
-backend.
-
-------------------------------------------------------------------------
-
-## Prerequisites
-
-Install:
-
-1.  Flutter SDK
-2.  Android Studio / Android SDK
-3.  Node.js and npm
-4.  PostgreSQL
-5.  Git
-6.  An Android emulator or Android phone
-
-Check installations:
-
-``` powershell
-flutter --version
-flutter doctor
-node --version
-npm --version
-psql --version
-adb devices
-```
-
-------------------------------------------------------------------------
+- **Frontend:** Flutter + Dart + Material UI
+- **Backend:** Node.js + Express.js
+- **Database:** PostgreSQL
+- **Authentication:** Firebase Authentication (currently retained for development/testing)
+- **HTTP:** REST APIs using Dart `http`
+- **Payment:** Current payment screen is UI/testing only; no live payment gateway is included yet.
 
 ## Project Structure
 
-``` text
+```text
 quickpark/
-│
 ├── android/
+├── ios/
+├── lib/
+│   ├── features/
+│   │   ├── booking/
+│   │   │   ├── booking_details_screen.dart
+│   │   │   ├── payment_screen.dart
+│   │   │   ├── booking_confirmed_screen.dart
+│   │   │   ├── booking_scheduled_screen.dart
+│   │   │   └── my_bookings_screen.dart
+│   │   ├── destination/
+│   │   │   └── destination_screen.dart
+│   │   ├── valet/
+│   │   │   └── valet_selection_screen.dart
+│   │   └── profile/
+│   │       └── profile_screen.dart
+│   └── main.dart
 ├── assets/
 │   └── images/
-│       ├── quickpark_logo.png
-│       └── quickpark_logo2.png
-│
-├── lib/
-│   ├── profile/
-│   ├── booking/
-│   └── ...
-│
+│       └── quickpark_logo.png
 ├── backend/
 │   ├── server.js
 │   ├── package.json
 │   └── .env
-│
 ├── pubspec.yaml
 ├── pubspec.lock
+├── .gitignore
 └── README.md
 ```
 
-------------------------------------------------------------------------
+File names/locations may evolve as development continues.
+
+---
+
+## Requirements
+
+Install:
+
+1. Flutter SDK
+2. Android Studio + Android SDK
+3. Node.js (LTS recommended)
+4. PostgreSQL
+5. Git
+
+Verify:
+
+```bash
+flutter --version
+flutter doctor
+dart --version
+node --version
+npm --version
+psql --version
+git --version
+```
+
+---
 
 ## Flutter Dependencies
 
-The project uses these main packages:
+The current project uses these important packages:
 
-``` yaml
-permission_handler: ^13.0.1
-firebase_core: ^4.14.0
-firebase_auth: ^6.6.1
-google_sign_in: ^7.2.0
-cloud_firestore: ^6.9.0
-http: ^1.6.0
+```yaml
+dependencies:
+  flutter:
+    sdk: flutter
+
+  permission_handler: ^13.0.1
+  firebase_core: ^4.14.0
+  firebase_auth: ^6.6.1
+  google_sign_in: ^7.2.0
+  cloud_firestore: ^6.9.0
+  http: ^1.6.0
 ```
 
 Install them with:
 
-``` powershell
+```bash
 flutter pub get
 ```
 
-------------------------------------------------------------------------
+### Package purpose
 
-## Backend Dependencies
+| Package | Purpose |
+|---|---|
+| `permission_handler` | Runtime permissions |
+| `firebase_core` | Firebase initialization |
+| `firebase_auth` | Login/authentication |
+| `google_sign_in` | Google sign-in support |
+| `cloud_firestore` | Existing/legacy Firestore functionality |
+| `http` | Flutter → Express REST API communication |
 
-The backend uses:
+> Keep `pubspec.yaml` as the source of truth for exact dependency versions.
 
--   express
--   cors
--   dotenv
--   pg
+---
 
-Go to the backend:
+# Firebase Setup
 
-``` powershell
-cd backend
+Firebase Authentication is currently retained for login/testing.
+
+For Android, the Firebase configuration normally lives at:
+
+```text
+android/app/google-services.json
 ```
 
-Install:
+If cloning this repository on another machine, configure the Firebase Android app and add the required configuration file.
 
-``` powershell
-npm install
-```
+Do not commit private credentials or API secrets.
 
-If dependencies have not been created yet:
-
-``` powershell
-npm install express cors dotenv pg
-```
-
-------------------------------------------------------------------------
+---
 
 # PostgreSQL Setup
 
 Create the database:
 
-``` sql
+```sql
 CREATE DATABASE quickpark;
 ```
 
 Connect:
 
-``` sql
-\c quickpark
+```bash
+psql -U postgres
 ```
 
-The database contains these main tables:
+Then:
 
-``` text
+```sql
+\c quickpark
+\dt
+```
+
+The application database contains the main entities:
+
+```text
 users
 vehicles
 valets
@@ -157,61 +158,64 @@ destinations
 bookings
 ```
 
-Check them:
+If PostgreSQL-based OTP authentication is enabled later, an additional table can be used:
 
-``` sql
-\dt
+```text
+otp_verifications
 ```
 
-Check users:
+Inspect tables with:
 
-``` sql
-SELECT * FROM users;
+```sql
+\d users
+\d vehicles
+\d bookings
 ```
 
-Check vehicles:
+---
 
-``` sql
-SELECT * FROM vehicles ORDER BY id DESC;
+# Backend Setup
+
+Backend location:
+
+```text
+backend/server.js
 ```
 
-Check bookings:
+Install dependencies:
 
-``` sql
-SELECT * FROM bookings ORDER BY id DESC;
+```bash
+cd backend
+npm install
 ```
 
-Check users + vehicles:
+Core backend packages are:
 
-``` sql
-SELECT
-    u.id AS user_id,
-    u.firebase_uid,
-    u.full_name,
-    u.phone_number,
-    u.email,
-    v.id AS vehicle_id,
-    v.registration_number,
-    v.car_model,
-    v.is_primary
-FROM users u
-LEFT JOIN vehicles v ON v.user_id = u.id
-ORDER BY u.id, v.id;
+```bash
+npm install express pg cors dotenv
 ```
 
-------------------------------------------------------------------------
+If JWT authentication is added:
 
-# Backend Configuration
+```bash
+npm install jsonwebtoken
+```
+
+> Prefer the dependencies already declared in `backend/package.json`; only run the install commands above if those packages are missing.
+
+---
+
+# Environment Variables
 
 Create:
 
-``` text
+```text
 backend/.env
 ```
 
 Example:
 
-``` env
+```env
 PORT=3000
 
 DB_HOST=localhost
@@ -221,648 +225,481 @@ DB_USER=postgres
 DB_PASSWORD=YOUR_POSTGRES_PASSWORD
 ```
 
-Replace `YOUR_POSTGRES_PASSWORD` with your PostgreSQL password.
+Replace `YOUR_POSTGRES_PASSWORD` with your local PostgreSQL password.
 
-**Never commit `.env` to GitHub.**
+Add to `.gitignore`:
 
-------------------------------------------------------------------------
-
-# Firebase Setup
-
-QuickPark uses Firebase Authentication.
-
-The Android Firebase configuration file is:
-
-``` text
-android/app/google-services.json
+```gitignore
+.env
+*.env
 ```
 
-Make sure the file belongs to the correct Firebase project and Android
-application.
+Never commit database passwords, API keys, JWT secrets, SMS credentials, or payment secrets.
 
-Firebase is used for authentication, while the Firebase UID is used by
-the backend to associate the authenticated user with PostgreSQL data.
+---
 
-------------------------------------------------------------------------
+# Start the Backend
 
-# Run the Backend
+From the project root:
 
-Open Terminal 1:
-
-``` powershell
-cd "C:\Users\ayush\OneDrive\Desktop\quickpark\backend"
-```
-
-Install dependencies:
-
-``` powershell
-npm install
-```
-
-Start:
-
-``` powershell
+```bash
+cd backend
 node server.js
 ```
 
-Expected:
+The API runs on:
 
-``` text
-QuickPark backend running on port 3000
+```text
+http://localhost:3000
 ```
 
-Keep this terminal open.
+Health check:
 
-Test:
-
-``` text
-http://localhost:3000/api/health
-```
-
-------------------------------------------------------------------------
-
-# Run the Flutter Application
-
-Open Terminal 2 in the project root:
-
-``` powershell
-cd "C:\Users\ayush\OneDrive\Desktop\quickpark"
-```
-
-Install dependencies:
-
-``` powershell
-flutter pub get
-```
-
-Run:
-
-``` powershell
-flutter run
-```
-
-For a clean rebuild:
-
-``` powershell
-flutter clean
-flutter pub get
-flutter run
-```
-
-------------------------------------------------------------------------
-
-# Android Emulator
-
-For the Android Emulator, the computer running Node.js is accessed
-using:
-
-``` text
-http://10.0.2.2:3000
-```
-
-Flutter backend URL:
-
-``` dart
-static const String baseUrl = 'http://10.0.2.2:3000';
-```
-
-Do **not** use `localhost` from the Android emulator to reach the
-Windows backend.
-
-------------------------------------------------------------------------
-
-# Physical Android Phone
-
-Find the computer's local IP:
-
-``` powershell
-ipconfig
-```
-
-Example:
-
-``` text
-192.168.1.10
-```
-
-Use:
-
-``` text
-http://192.168.1.10:3000
-```
-
-The phone and computer should be connected to the same network.
-
-------------------------------------------------------------------------
-
-# Backend API
-
-## Health
-
-``` http
+```text
 GET /api/health
 ```
 
-## Profile
+---
 
-``` http
-GET /api/profile/:firebaseUid
-POST /api/profile
-```
+# Android Emulator Networking
 
-The GET profile endpoint returns the profile and **all vehicles**.
-
-## Vehicles
-
-``` http
-GET /api/vehicles/:firebaseUid
-POST /api/vehicles
-PUT /api/vehicles/:vehicleId
-PATCH /api/vehicles/:vehicleId/primary
-DELETE /api/vehicles/:vehicleId
-```
-
-## Valets
-
-``` http
-GET /api/valets
-GET /api/valets/all
-```
-
-## Bookings
-
-``` http
-POST /api/bookings
-GET /api/bookings/:firebaseUid
-PATCH /api/bookings/:bookingId/cancel
-```
-
-------------------------------------------------------------------------
-
-# Vehicle Management
-
-Vehicle data is stored in PostgreSQL.
-
-Main fields:
-
-``` text
-id
-user_id
-registration_number
-car_model
-is_primary
-created_at
-```
-
-### Add Vehicle
-
-Flutter sends:
-
-``` http
-POST /api/vehicles
-```
-
-The backend inserts the vehicle into PostgreSQL.
-
-The first vehicle is automatically primary.
-
-### Edit Vehicle
-
-Flutter sends:
-
-``` http
-PUT /api/vehicles/:vehicleId
-```
-
-The backend updates the selected vehicle.
-
-### Make Primary
-
-Flutter sends:
-
-``` http
-PATCH /api/vehicles/:vehicleId/primary
-```
-
-The backend removes primary status from the user's other vehicles and
-makes the selected vehicle primary.
-
-### Remove Vehicle
-
-Flutter sends:
-
-``` http
-DELETE /api/vehicles/:vehicleId
-```
-
-The vehicle is deleted from PostgreSQL.
-
-If the removed vehicle was primary, another remaining vehicle is
-automatically made primary.
-
-------------------------------------------------------------------------
-
-# Booking Flow
-
-``` text
-Destination
-    ↓
-Valet Location
-    ↓
-Pricing Tier
-    ↓
-Schedule
-    ↓
-Vehicle
-    ↓
-Booking Details
-    ↓
-Create Booking
-    ↓
-PostgreSQL
-```
-
-A booking can store:
-
--   User
--   Vehicle
--   Valet
--   Destination
--   Amount
--   Status
--   Created time
--   Updated time
-
-The `vehicle_id` field connects a booking to the selected vehicle.
-
-------------------------------------------------------------------------
-
-# Schedule
-
-The Schedule control allows the user to select:
-
-1.  Date
-2.  Time slot
-
-The current UI uses fixed time slots rather than requiring manual time
-entry.
-
-Example:
-
-``` text
-6:00 PM
-6:30 PM
-7:00 PM
-7:30 PM
-8:00 PM
-8:30 PM
-9:00 PM
-9:30 PM
-```
-
-If schedule information needs to be permanently stored in PostgreSQL,
-the `bookings` table and booking API should contain dedicated scheduled
-date/time fields.
-
-------------------------------------------------------------------------
-
-# Git Workflow
-
-Check changes:
-
-``` powershell
-git status
-```
-
-Stage everything:
-
-``` powershell
-git add .
-```
-
-Commit:
-
-``` powershell
-git commit -m "Update QuickPark app"
-```
-
-Push:
-
-``` powershell
-git push
-```
-
-If required:
-
-``` powershell
-git push origin main
-```
-
-Verify:
-
-``` powershell
-git status
-```
-
-Expected:
-
-``` text
-nothing to commit, working tree clean
-```
-
-------------------------------------------------------------------------
-
-# Recommended .gitignore
-
-Do not commit secrets or generated files.
-
-``` gitignore
-# Flutter
-.dart_tool/
-.packages
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
-
-# Android
-android/.gradle/
-android/local.properties
-
-# Node
-node_modules/
-
-# Environment / secrets
-.env
-*.env
-
-# IDE
-.vscode/
-.idea/
-
-# OS
-.DS_Store
-Thumbs.db
-```
-
-------------------------------------------------------------------------
-
-# Troubleshooting
-
-## Backend module not found
-
-Go to:
-
-``` powershell
-cd backend
-```
-
-Then:
-
-``` powershell
-npm install
-node server.js
-```
+An Android Emulator cannot normally access your PC backend using `localhost`.
 
 Use:
 
-``` text
-server.js
-```
-
-as the backend entry point.
-
-## Backend is running but Flutter cannot connect
-
-For Android Emulator:
-
-``` text
+```text
 http://10.0.2.2:3000
 ```
 
-For a physical phone:
+Example:
 
-``` text
-http://YOUR_PC_LAN_IP:3000
+```dart
+const String baseUrl = 'http://10.0.2.2:3000';
 ```
 
-Check:
+For a physical Android device, use your computer's LAN IP:
 
-``` powershell
-adb devices
+```text
+http://192.168.x.x:3000
 ```
 
-## PostgreSQL data exists but app does not show it
+The phone and computer must be on the same network.
 
-Check:
+---
 
-``` sql
-SELECT
-    u.id AS user_id,
-    u.firebase_uid,
-    u.full_name,
-    v.id AS vehicle_id,
-    v.registration_number,
-    v.car_model,
-    v.is_primary
-FROM users u
-LEFT JOIN vehicles v ON v.user_id = u.id
-ORDER BY u.id, v.id;
-```
+# Run the Flutter App
 
-Then verify that the Firebase UID used by Flutter matches
-`users.firebase_uid`.
+From the project root:
 
-## App is showing old code
-
-Run:
-
-``` powershell
+```bash
 flutter clean
 flutter pub get
 flutter run
 ```
 
-## PostgreSQL connection error
+See connected devices:
+
+```bash
+flutter devices
+```
+
+Run on a specific device:
+
+```bash
+flutter run -d DEVICE_ID
+```
+
+---
+
+# Main App Flow
+
+## Normal booking
+
+```text
+Login
+  ↓
+Destination
+  ↓
+Valet Selection
+  ↓
+Select Vehicle
+  ↓
+Confirm Booking
+  ↓
+Payment UI
+  ↓
+Booking Confirmed
+  ↓
+My Bookings
+```
+
+## Scheduled booking
+
+```text
+Destination
+  ↓
+Valet Selection
+  ↓
+Schedule Booking
+  ↓
+Select Date
+  ↓
+Select Time Slot
+  ↓
+Confirm Schedule
+  ↓
+Booking Scheduled
+```
+
+---
+
+# Booking Screens
+
+### `booking_details_screen.dart`
+
+Displays:
+
+- Valet information
+- Destination
+- ETA
+- User's vehicles
+- Selected vehicle
+- Estimated total
+- Confirm Booking action
+
+### `payment_screen.dart`
+
+Current UI includes:
+
+- UPI
+- Credit/Debit Card
+- Cash / Pay at Valet
+- Booking summary
+- Total amount
+- Pay button
+
+The current payment screen is a **development/testing UI**. It is not a real payment gateway.
+
+### `booking_confirmed_screen.dart`
+
+Displays successful booking information including:
+
+- Booking ID
+- Valet
+- Vehicle
+- Destination
+- Amount
+- Tracking action
+
+### `booking_scheduled_screen.dart`
+
+Displays:
+
+- Booking Scheduled
+- 6-digit booking ID
+- Vehicle
+- Destination
+- Scheduled date/time
+- Duration
+- Amount
+- Assigned valet
+- Edit Time
+- Cancel Schedule
+
+### `my_bookings_screen.dart`
+
+Displays booking history and separates bookings into states such as:
+
+- Active Service
+- Upcoming
+
+---
+
+# Backend API
+
+The current backend contains REST endpoints for major operations.
+
+Common routes include:
+
+```text
+GET    /api/health
+
+GET    /api/profile/:firebaseUid
+POST   /api/profile
+
+GET    /api/vehicles/:firebaseUid
+POST   /api/vehicles
+PUT    /api/vehicles/:vehicleId
+PATCH  /api/vehicles/:vehicleId/primary
+DELETE /api/vehicles/:vehicleId
+
+GET    /api/valets
+GET    /api/valets/all
+
+POST   /api/bookings
+GET    /api/bookings/:firebaseUid
+```
+
+The project also contains PostgreSQL-oriented profile, vehicle, and booking API implementations using user ID/phone-number based routes.
+
+When changing API contracts, update both:
+
+```text
+Flutter client
+      ↕
+Express routes
+      ↕
+PostgreSQL
+```
+
+---
+
+# Booking Statuses
+
+The UI can handle statuses such as:
+
+```text
+confirmed
+in_progress
+arriving
+arrived
+vehicle_received
+parking
+parked
+retrieving
+ready_for_pickup
+completed
+cancelled
+```
+
+Keep backend/database status values consistent with the Flutter filtering logic.
+
+---
+
+# Development Authentication
+
+Firebase Authentication is currently used for login while the application is being built/tested.
+
+The longer-term architecture can migrate authentication to PostgreSQL + Express + OTP if required.
+
+Until that migration is complete:
+
+```text
+Firebase Authentication
+        ↓
+Flutter
+        ↓
+Express REST API
+        ↓
+PostgreSQL application data
+```
+
+Do not remove Firebase packages/configuration until every Firebase-dependent screen has been migrated.
+
+---
+
+# Payment
+
+The payment page is currently only a UI/testing layer.
+
+Current flow:
+
+```text
+Confirm Booking
+      ↓
+Payment Screen
+      ↓
+Pay
+      ↓
+Booking creation / confirmation
+```
+
+A production payment gateway should later be added with:
+
+- Server-side payment verification
+- Order creation
+- Payment signature/webhook verification
+- Secure API keys
+- Failed-payment handling
+- Refund handling
+
+Never put secret payment credentials inside Flutter code.
+
+---
+
+# Troubleshooting
+
+## Flutter dependencies
+
+```bash
+flutter clean
+flutter pub get
+flutter analyze
+flutter run
+```
+
+## Backend not reachable
 
 Check:
 
--   PostgreSQL service is running.
--   Database name is `quickpark`.
--   Username is correct.
--   Password in `backend/.env` is correct.
--   Port is normally `5432`.
+1. PostgreSQL is running.
+2. `quickpark` database exists.
+3. `backend/.env` is correct.
+4. Express is running.
+5. Flutter uses the correct base URL.
+6. Android emulator uses `10.0.2.2`, not `localhost`.
 
-------------------------------------------------------------------------
+## PostgreSQL
 
-# Development Checklist
-
-Before running:
-
-``` text
-[ ] PostgreSQL is running
-[ ] quickpark database exists
-[ ] users table exists
-[ ] vehicles table exists
-[ ] valets table exists
-[ ] destinations table exists
-[ ] bookings table exists
-[ ] backend/.env is configured
-[ ] npm dependencies installed
-[ ] backend/server.js is running
-[ ] Firebase configuration exists
-[ ] Flutter dependencies installed
-[ ] Android emulator/phone connected
-```
-
-Start backend:
-
-``` powershell
-cd backend
-node server.js
-```
-
-Start Flutter in another terminal:
-
-``` powershell
-flutter pub get
-flutter run
-```
-
-------------------------------------------------------------------------
-
-# Architecture Summary
-
-``` text
-                    QuickPark
-                       |
-              +--------+--------+
-              |                 |
-              v                 v
-        Firebase Auth       Flutter App
-              |                 |
-              | Firebase UID    |
-              +--------+--------+
-                       |
-                       v
-                 Express.js API
-                       |
-                       v
-                  PostgreSQL
-                       |
-          +------------+------------+
-          |            |            |
-          v            v            v
-        Users       Vehicles      Bookings
-                       |
-                       v
-                     Valets
-                       |
-                       v
-                 Destinations
-```
-
-## Responsibility of Each Part
-
-### Flutter
-
-Handles:
-
--   UI
--   Navigation
--   User interactions
--   Firebase authentication
--   REST API requests
--   Profile screens
--   Vehicle management UI
--   Valet selection
--   Booking UI
--   Schedule selection
-
-### Firebase
-
-Handles:
-
--   Authentication
--   Google Sign-In
--   Phone/OTP authentication where configured
-
-### Express.js
-
-Handles:
-
--   REST API
--   PostgreSQL queries
--   Profile operations
--   Vehicle CRUD
--   Primary vehicle logic
--   Valet data
--   Booking creation
--   Booking retrieval
--   Booking cancellation
-
-### PostgreSQL
-
-Stores:
-
--   Users
--   Vehicles
--   Valets
--   Destinations
--   Bookings
-
-------------------------------------------------------------------------
-
-# Quick Start
-
-### Terminal 1
-
-``` powershell
-cd "C:\Users\ayush\OneDrive\Desktop\quickpark\backend"
-npm install
-node server.js
-```
-
-### Terminal 2
-
-``` powershell
-cd "C:\Users\ayush\OneDrive\Desktop\quickpark"
-flutter pub get
-flutter run
-```
-
-For Android Emulator:
-
-``` text
-http://10.0.2.2:3000
-```
-
-For PostgreSQL:
-
-``` powershell
+```bash
 psql -U postgres
 ```
 
 Then:
 
-``` sql
+```sql
+\l
 \c quickpark
-```
-
-Check:
-
-``` sql
 \dt
 ```
 
-------------------------------------------------------------------------
+## Android
 
-## Important Architecture Rule
+Run:
 
-Keep database communication in this form:
-
-``` text
-Flutter → Express API → PostgreSQL
+```bash
+flutter doctor
 ```
 
-Do not put PostgreSQL credentials inside the Flutter application and do
-not connect Flutter directly to PostgreSQL.
+Then:
+
+```bash
+flutter clean
+flutter pub get
+flutter run
+```
+
+Avoid randomly changing Gradle/Kotlin/AGP versions. Inspect the versions currently configured by the Flutter project first.
+
+---
+
+# Fresh Clone Installation
+
+Clone:
+
+```bash
+git clone YOUR_GITHUB_REPOSITORY_URL
+cd quickpark
+```
+
+Install Flutter dependencies:
+
+```bash
+flutter pub get
+```
+
+Configure Firebase for authentication if required.
+
+Create PostgreSQL database:
+
+```sql
+CREATE DATABASE quickpark;
+```
+
+Configure:
+
+```text
+backend/.env
+```
+
+Install backend dependencies:
+
+```bash
+cd backend
+npm install
+```
+
+Start backend:
+
+```bash
+node server.js
+```
+
+Open another terminal:
+
+```bash
+cd quickpark
+flutter run
+```
+
+---
+
+# Recommended Development Order
+
+1. Start PostgreSQL
+2. Start Express
+3. Verify `/api/health`
+4. Start Flutter
+5. Test login
+6. Test destination selection
+7. Test valet selection
+8. Test vehicle selection
+9. Test normal booking
+10. Test payment UI
+11. Test booking confirmation
+12. Test scheduled booking
+13. Test My Bookings
+14. Integrate production payment gateway later
+
+---
+
+# Git Workflow
+
+Check changes:
+
+```bash
+git status
+```
+
+Add:
+
+```bash
+git add .
+```
+
+Commit:
+
+```bash
+git commit -m "Update QuickPark app"
+```
+
+Push:
+
+```bash
+git push origin main
+```
+
+Before pushing, make sure secrets are ignored:
+
+```bash
+git status
+```
+
+Never commit:
+
+```text
+.env
+database passwords
+API keys
+private credentials
+payment secrets
+SMS provider credentials
+```
+
+---
+
+# License
+
+QuickPark is currently a private/development project.
+
+Add an appropriate open-source license before publicly distributing the source code.

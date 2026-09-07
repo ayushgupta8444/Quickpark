@@ -1,10 +1,19 @@
-import 'dart:math' as math;
+import 'dart:async';
+import 'dart:convert';
+import 'dart:ui' as ui;
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
 
 import 'package:flutter/material.dart';
 
 import '../valet/valet_selection_screen.dart';
 import '../profile/profile_screen.dart';
 import '../booking/my_bookings_screen.dart';
+import '../alerts/alerts_screen.dart';
+
 
 class DestinationScreen extends StatefulWidget {
   const DestinationScreen({super.key});
@@ -33,41 +42,153 @@ class _DestinationScreenState
       'Koramangala 80 Feet Road';
 
   // ============================================================
-  // VALET LOCATIONS
+  // REAL MAP + VALET LOCATIONS
   // ============================================================
 
-  final List<ValetLocation> _valetLocations = [
-    const ValetLocation(
-      name: 'UB City Mall Valet',
-      address: 'Vittal Mallya Road, Lavelle Road',
-      price: '₹90',
-      distance: '1.2 km',
-      rating: '4.8',
-      color: Color(0xFFEF0038),
-      mapX: 0.52,
-      mapY: 0.28,
-    ),
-    const ValetLocation(
-      name: 'Phoenix Marketcity',
-      address: 'Mahadevapura, Bengaluru',
-      price: '₹120',
-      distance: '8.5 km',
-      rating: '4.6',
-      color: Color(0xFF222222),
-      mapX: 0.76,
-      mapY: 0.47,
-    ),
-    const ValetLocation(
-      name: 'Forum Mall Valet',
-      address: 'Koramangala, Bengaluru',
-      price: '₹60',
-      distance: '3.4 km',
-      rating: '4.7',
-      color: Color(0xFF222222),
-      mapX: 0.26,
-      mapY: 0.66,
-    ),
-  ];
+  final MapController _mapController = MapController();
+
+  final List<ValetLocation> _valetLocations = [];
+
+  bool _isLoadingValets = true;
+  String? _valetLoadError;
+
+  String get _baseUrl {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return 'http://10.0.2.2:3000';
+    }
+
+    return 'http://127.0.0.1:3000';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _loadValets();
+  }
+
+  Future<void> _loadValets() async {
+    try {
+      final response = await http
+          .get(Uri.parse('$_baseUrl/api/valets'))
+          .timeout(const Duration(seconds: 10));
+
+      if (response.statusCode != 200) {
+        throw Exception(
+          'Server returned ${response.statusCode}',
+        );
+      }
+
+      final decoded = jsonDecode(response.body);
+
+      if (decoded is! Map ||
+          decoded['success'] != true ||
+          decoded['valets'] is! List) {
+        throw Exception('Invalid valet API response');
+      }
+
+      final List<dynamic> apiValets =
+          decoded['valets'] as List<dynamic>;
+
+      final List<ValetLocation> loadedValets = [];
+
+      for (int index = 0; index < apiValets.length; index++) {
+        final item = apiValets[index];
+
+        if (item is! Map) continue;
+
+        final latitude = double.tryParse(
+          item['latitude']?.toString() ?? '',
+        );
+        final longitude = double.tryParse(
+          item['longitude']?.toString() ?? '',
+        );
+
+        if (latitude == null || longitude == null) continue;
+        if (latitude < -90 || latitude > 90) continue;
+        if (longitude < -180 || longitude > 180) continue;
+
+        loadedValets.add(
+          ValetLocation.fromApi(
+            Map<String, dynamic>.from(item),
+            color: index == 0
+                ? const Color(0xFFEF0038)
+                : const Color(0xFF222222),
+          ),
+        );
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _valetLocations
+          ..clear()
+          ..addAll(loadedValets);
+        _isLoadingValets = false;
+        _valetLoadError = null;
+      });
+
+      if (loadedValets.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+
+          final first = loadedValets.first;
+          _mapController.move(
+            LatLng(first.latitude, first.longitude),
+            15.5,
+          );
+        });
+      }
+    } catch (error) {
+      if (!mounted) return;
+
+      setState(() {
+        _isLoadingValets = false;
+        _valetLoadError = error.toString();
+      });
+    }
+  }
+
+  void _animateMapTo(
+    LatLng target, {
+    double zoom = 16,
+  }) {
+    final start = _mapController.camera.center;
+    final startZoom = _mapController.camera.zoom;
+    const duration = Duration(milliseconds: 650);
+    final stopwatch = Stopwatch()..start();
+
+    Timer? timer;
+    timer = Timer.periodic(
+      const Duration(milliseconds: 16),
+      (_) {
+        if (!mounted) {
+          timer?.cancel();
+          return;
+        }
+        final progress =
+            (stopwatch.elapsedMilliseconds / duration.inMilliseconds)
+                .clamp(0.0, 1.0);
+        final eased = Curves.easeInOutCubic.transform(progress);
+
+        final lat = start.latitude +
+            (target.latitude - start.latitude) * eased;
+        final lng = start.longitude +
+            (target.longitude - start.longitude) * eased;
+        final nextZoom =
+            startZoom + (zoom - startZoom) * eased;
+
+        _mapController.move(
+          LatLng(lat, lng),
+          nextZoom,
+        );
+
+        if (progress >= 1.0) {
+          timer?.cancel();
+          stopwatch.stop();
+        }
+      },
+    );
+  }
 
   // ============================================================
   // DISPOSE
@@ -418,20 +539,13 @@ class _DestinationScreenState
     });
 
     if (index == 2) {
-      ScaffoldMessenger.of(context)
-          .hideCurrentSnackBar();
-
-      ScaffoldMessenger.of(context)
-          .showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Alerts will be available soon.',
-            style: TextStyle(fontSize: 14),
-          ),
-          behavior: SnackBarBehavior.floating,
-          margin: EdgeInsets.all(16),
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AlertsScreen(),
         ),
       );
+      return;
     }
   }
 
@@ -526,29 +640,138 @@ class _DestinationScreenState
                 clipBehavior: Clip.hardEdge,
                 children: [
                   Positioned.fill(
-                    child: CustomPaint(
-                      painter: _CityMapPainter(),
+                    child: FlutterMap(
+                      mapController: _mapController,
+                      options: MapOptions(
+                        initialCenter: const LatLng(
+                          12.9716,
+                          77.5946,
+                        ),
+                        initialZoom: 14,
+                        minZoom: 10,
+                        maxZoom: 19,
+                        interactionOptions: const InteractionOptions(
+                          flags: InteractiveFlag.all,
+                        ),
+                      ),
+                      children: [
+                        TileLayer(
+                          urlTemplate:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          userAgentPackageName: 'com.example.quickpark',
+                          maxZoom: 19,
+                        ),
+
+                        MarkerLayer(
+                          markers: _valetLocations.map((valet) {
+                            return Marker(
+                              point: LatLng(
+                                valet.latitude,
+                                valet.longitude,
+                              ),
+                              width: 90,
+                              height: 72,
+                              alignment: Alignment.bottomCenter,
+                              child: TweenAnimationBuilder<double>(
+                                key: ValueKey('marker-${valet.id}'),
+                                tween: Tween<double>(
+                                  begin: 0.55,
+                                  end: 1.0,
+                                ),
+                                duration: const Duration(milliseconds: 500),
+                                curve: Curves.easeOutBack,
+                                builder: (context, scale, child) {
+                                  return Transform.scale(
+                                    scale: scale,
+                                    child: child,
+                                  );
+                                },
+                                child: _MapPriceMarker(
+                                  price: valet.price,
+                                  color: valet.color,
+                                  onTap: () {
+                                    _animateMapTo(
+                                      LatLng(
+                                        valet.latitude,
+                                        valet.longitude,
+                                      ),
+                                      zoom: 16,
+                                    );
+                                    _selectValet(valet);
+                                  },
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+
+                        const RichAttributionWidget(
+                          attributions: [
+                            TextSourceAttribution(
+                              'OpenStreetMap contributors',
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                   ),
 
-                  ..._valetLocations.map(
-                    (valet) {
-                      return Positioned(
-                        left: MediaQuery.sizeOf(context).width *
-                                valet.mapX -
-                            25,
-                        top: MediaQuery.sizeOf(context).height *
-                                0.49 *
-                                valet.mapY -
-                            40,
-                        child: _MapPriceMarker(
-                          price: valet.price,
-                          color: valet.color,
-                          onTap: () => _selectValet(valet),
+                  if (_isLoadingValets)
+                    const Positioned.fill(
+                      child: IgnorePointer(
+                        child: Center(
+                          child: CircularProgressIndicator(),
                         ),
-                      );
-                    },
-                  ),
+                      ),
+                    ),
+
+                  if (_valetLoadError != null && !_isLoadingValets)
+                    Positioned(
+                      top: 16,
+                      left: 43,
+                      right: 43,
+                      child: Material(
+                        color: Colors.white,
+                        elevation: 4,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
+                          child: Row(
+                            children: [
+                              const Expanded(
+                                child: Text(
+                                  'Unable to load valet locations',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _isLoadingValets = true;
+                                    _valetLoadError = null;
+                                  });
+                                  _loadValets();
+                                },
+                                child: const Text(
+                                  'Retry',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFEF0038),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
 
                   Positioned(
                     right: 18,
@@ -556,9 +779,19 @@ class _DestinationScreenState
                     child: GestureDetector(
                       onTap: () {
                         setState(() {
-                          _currentLocation =
-                              'Current location';
+                          _currentLocation = 'Current location';
                         });
+
+                        if (_valetLocations.isNotEmpty) {
+                          final nearest = _valetLocations.first;
+                          _animateMapTo(
+                            LatLng(
+                              nearest.latitude,
+                              nearest.longitude,
+                            ),
+                            zoom: 16,
+                          );
+                        }
                       },
                       child: Container(
                         width: 44,
@@ -592,7 +825,7 @@ class _DestinationScreenState
                     right: 0,
                     bottom: 12,
                     child: SizedBox(
-                      height: 158,
+                      height: 205,
                       child: ListView.separated(
                         scrollDirection: Axis.horizontal,
                         physics: const BouncingScrollPhysics(),
@@ -603,9 +836,7 @@ class _DestinationScreenState
                         separatorBuilder: (_, __) =>
                             const SizedBox(width: 12),
                         itemBuilder: (context, index) {
-                          final valet =
-                              _valetLocations[index];
-
+                          final valet = _valetLocations[index];
                           return _ValetCard(
                             valet: valet,
                             onSelect: () => _selectValet(valet),
@@ -688,25 +919,55 @@ class _DestinationScreenState
 // ==================================================================
 
 class ValetLocation {
+  final int id;
   final String name;
   final String address;
   final String price;
   final String distance;
   final String rating;
   final Color color;
-  final double mapX;
-  final double mapY;
+  final double latitude;
+  final double longitude;
 
   const ValetLocation({
+    required this.id,
     required this.name,
     required this.address,
     required this.price,
     required this.distance,
     required this.rating,
     required this.color,
-    required this.mapX,
-    required this.mapY,
+    required this.latitude,
+    required this.longitude,
   });
+
+  factory ValetLocation.fromApi(
+    Map<String, dynamic> json, {
+    required Color color,
+  }) {
+    final rawPrice = json['starting_price']?.toString() ?? '0';
+    final rawDistance = json['distance_km']?.toString() ?? '0';
+
+    final price = rawPrice.endsWith('.00')
+        ? rawPrice.substring(0, rawPrice.length - 3)
+        : rawPrice;
+
+    final distance = rawDistance.endsWith('.00')
+        ? rawDistance.substring(0, rawDistance.length - 3)
+        : rawDistance;
+
+    return ValetLocation(
+      id: int.tryParse(json['id']?.toString() ?? '') ?? 0,
+      name: json['name']?.toString() ?? 'QuickPark Valet',
+      address: json['address']?.toString() ?? 'Bengaluru',
+      price: '₹$price',
+      distance: '$distance km',
+      rating: json['rating']?.toString() ?? '0.0',
+      color: color,
+      latitude: double.parse(json['latitude'].toString()),
+      longitude: double.parse(json['longitude'].toString()),
+    );
+  }
 }
 
 // ==================================================================
@@ -805,13 +1066,13 @@ class _PinPainter
     Canvas canvas,
     Size size,
   ) {
-    final Paint paint =
-        Paint()
+    final ui.Paint paint =
+        ui.Paint()
           ..color = color
-          ..style = PaintingStyle.fill;
+          ..style = ui.PaintingStyle.fill;
 
-    final Path path =
-        Path();
+    final ui.Path path =
+        ui.Path();
 
     path.moveTo(
       size.width / 2,
@@ -859,13 +1120,13 @@ class _PinPainter
       paint,
     );
 
-    final Paint innerPaint =
-        Paint()
+    final ui.Paint innerPaint =
+        ui.Paint()
           ..color = Colors.white
-          ..style = PaintingStyle.fill;
+          ..style = ui.PaintingStyle.fill;
 
     canvas.drawCircle(
-      Offset(
+      ui.Offset(
         size.width / 2,
         size.height * 0.29,
       ),
@@ -901,16 +1162,16 @@ class _ValetCard
     BuildContext context,
   ) {
     return Container(
-      width: 285,
+      width: 340,
       padding: const EdgeInsets.fromLTRB(
         18,
-        15,
+        16,
         18,
-        13,
+        15,
       ),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(17),
+        borderRadius: BorderRadius.circular(28),
         boxShadow: const [
           BoxShadow(
             color: Color(0x18000000),
@@ -922,27 +1183,37 @@ class _ValetCard
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // =========================================================
+          // DISTANCE + RATING
+          // =========================================================
           Row(
             children: [
-              Expanded(
-                child: Text(
-                  valet.name,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF252525),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.near_me,
+                    size: 17,
+                    color: Color(0xFFEF0038),
                   ),
-                ),
+                  const SizedBox(width: 5),
+                  Text(
+                    valet.distance,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF777777),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 7),
+              const Spacer(),
               const Icon(
                 Icons.star,
                 size: 17,
                 color: Color(0xFFE6A900),
               ),
-              const SizedBox(width: 3),
+              const SizedBox(width: 4),
               Text(
                 valet.rating,
                 style: const TextStyle(
@@ -954,8 +1225,27 @@ class _ValetCard
             ],
           ),
 
-          const SizedBox(height: 6),
+          const SizedBox(height: 9),
 
+          // =========================================================
+          // VALET NAME
+          // =========================================================
+          Text(
+            valet.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF252525),
+            ),
+          ),
+
+          const SizedBox(height: 5),
+
+          // =========================================================
+          // ADDRESS
+          // =========================================================
           Text(
             valet.address,
             maxLines: 1,
@@ -968,58 +1258,69 @@ class _ValetCard
 
           const Spacer(),
 
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                valet.price,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFFEF0038),
+          // =========================================================
+          // PRICE + SELECT
+          // =========================================================
+          Container(
+            height: 58,
+            padding: const EdgeInsets.only(
+              left: 0,
+              right: 0,
+            ),
+            decoration: const BoxDecoration(
+              border: Border(
+                top: BorderSide(
+                  color: Color(0xFFF0F0F1),
+                  width: 1,
                 ),
               ),
-              const SizedBox(width: 4),
-              const Text(
-                '/ 2 hrs',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Color(0xFF777777),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  valet.price,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFFEF0038),
+                  ),
                 ),
-              ),
-              const Spacer(),
-              GestureDetector(
-                onTap: onSelect,
-                behavior: HitTestBehavior.opaque,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 17,
-                    vertical: 9,
+
+                const SizedBox(width: 4),
+
+                const Text(
+                  '/ 2 hrs',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF777777),
                   ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFE9EE),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text(
-                    'Select',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFFEF0038),
+                ),
+
+                const Spacer(),
+
+                GestureDetector(
+                  onTap: onSelect,
+                  behavior: HitTestBehavior.opaque,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 17,
+                      vertical: 9,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFE9EE),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Text(
+                      'Select',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFEF0038),
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 5),
-
-          Text(
-            valet.distance,
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF888888),
+              ],
             ),
           ),
         ],
@@ -1027,6 +1328,7 @@ class _ValetCard
     );
   }
 }
+
 
 // ==================================================================
 // BOTTOM NAV ITEM
@@ -1329,207 +1631,5 @@ class _FilterOption
         ],
       ),
     );
-  }
-}
-
-// ==================================================================
-// CITY MAP PAINTER
-// ==================================================================
-
-class _CityMapPainter
-    extends CustomPainter {
-  @override
-  void paint(
-    Canvas canvas,
-    Size size,
-  ) {
-    final Paint background = Paint()
-      ..color = const Color(0xFFF1F2F2);
-
-    canvas.drawRect(
-      Offset.zero & size,
-      background,
-    );
-
-    // Subtle water / river on the right.
-    final Paint water = Paint()
-      ..color = const Color(0xFFE1E8E9)
-      ..style = PaintingStyle.fill;
-
-    final Path river = Path()
-      ..moveTo(size.width * 0.82, 0)
-      ..cubicTo(
-        size.width * 0.73,
-        size.height * 0.18,
-        size.width * 0.88,
-        size.height * 0.30,
-        size.width * 0.75,
-        size.height * 0.48,
-      )
-      ..cubicTo(
-        size.width * 0.67,
-        size.height * 0.62,
-        size.width * 0.86,
-        size.height * 0.77,
-        size.width * 0.79,
-        size.height,
-      )
-      ..lineTo(size.width, size.height)
-      ..lineTo(size.width, 0)
-      ..close();
-
-    canvas.drawPath(river, water);
-
-    // City blocks.
-    final math.Random random = math.Random(31);
-    final Paint blockPaint = Paint()
-      ..color = const Color(0xFFD7D9DA)
-      ..style = PaintingStyle.fill;
-
-    for (int i = 0; i < 115; i++) {
-      final double w = 7 + random.nextDouble() * 18;
-      final double h = 5 + random.nextDouble() * 14;
-
-      final double x =
-          random.nextDouble() * (size.width * 0.76 - w);
-      final double y =
-          random.nextDouble() * (size.height - h);
-
-      canvas.drawRect(
-        Rect.fromLTWH(x, y, w, h),
-        blockPaint,
-      );
-    }
-
-    // Organic city roads.
-    final Paint road = Paint()
-      ..color = const Color(0xFFC6C9CA)
-      ..strokeWidth = 1.0
-      ..style = PaintingStyle.stroke;
-
-    final Paint mainRoad = Paint()
-      ..color = const Color(0xFFB9BDBE)
-      ..strokeWidth = 2.2
-      ..style = PaintingStyle.stroke;
-
-    // Vertical curved streets.
-    for (int i = 0; i < 8; i++) {
-      final double x =
-          size.width * (0.10 + i * 0.085);
-
-      final Path path = Path()
-        ..moveTo(x, size.height)
-        ..cubicTo(
-          x - 12,
-          size.height * 0.74,
-          x + 18,
-          size.height * 0.42,
-          x + 3,
-          0,
-        );
-
-      canvas.drawPath(path, road);
-    }
-
-    // Horizontal streets.
-    for (int i = 0; i < 9; i++) {
-      final double y =
-          size.height * (0.08 + i * 0.10);
-
-      final Path path = Path()
-        ..moveTo(0, y)
-        ..cubicTo(
-          size.width * 0.27,
-          y - 13,
-          size.width * 0.58,
-          y + 16,
-          size.width,
-          y - 4,
-        );
-
-      canvas.drawPath(path, road);
-    }
-
-    // Main diagonal roads like the reference.
-    final Path diagonalA = Path()
-      ..moveTo(size.width * 0.04, size.height * 0.86)
-      ..cubicTo(
-        size.width * 0.24,
-        size.height * 0.63,
-        size.width * 0.46,
-        size.height * 0.40,
-        size.width * 0.73,
-        size.height * 0.08,
-      );
-
-    final Path diagonalB = Path()
-      ..moveTo(size.width * 0.00, size.height * 0.22)
-      ..cubicTo(
-        size.width * 0.26,
-        size.height * 0.35,
-        size.width * 0.52,
-        size.height * 0.63,
-        size.width * 0.78,
-        size.height * 0.87,
-      );
-
-    canvas.drawPath(diagonalA, mainRoad);
-    canvas.drawPath(diagonalB, mainRoad);
-
-    // Central city network.
-    final Offset center = Offset(
-      size.width * 0.47,
-      size.height * 0.50,
-    );
-
-    final Paint ringPaint = Paint()
-      ..color = const Color(0xFFD0D3D4)
-      ..strokeWidth = 1
-      ..style = PaintingStyle.stroke;
-
-    for (int i = 1; i <= 4; i++) {
-      canvas.drawCircle(
-        center,
-        i *
-            math.min(size.width, size.height) *
-            0.075,
-        ringPaint,
-      );
-    }
-
-    final Paint radialPaint = Paint()
-      ..color = const Color(0xFFD0D3D4)
-      ..strokeWidth = 0.75;
-
-    for (int i = 0; i < 20; i++) {
-      final double angle =
-          i * math.pi / 10;
-
-      final double radius =
-          math.min(size.width, size.height) * 0.31;
-
-      canvas.drawLine(
-        Offset(
-          center.dx +
-              math.cos(angle) * 20,
-          center.dy +
-              math.sin(angle) * 20,
-        ),
-        Offset(
-          center.dx +
-              math.cos(angle) * radius,
-          center.dy +
-              math.sin(angle) * radius,
-        ),
-        radialPaint,
-      );
-    }
-  }
-
-  @override
-  bool shouldRepaint(
-    covariant _CityMapPainter oldDelegate,
-  ) {
-    return false;
   }
 }

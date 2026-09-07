@@ -970,20 +970,19 @@ app.get("/api/valets", async (req, res) => {
   try {
     const result = await pool.query(
       `
+        
         SELECT
-          id,
-          name,
-          rating,
-          distance_km,
-          estimated_arrival_minutes,
-          available_spots,
-          starting_price,
-          is_available
-        FROM valets
-        WHERE is_available = TRUE
-        ORDER BY
-          distance_km ASC,
-          rating DESC
+    id,
+    name,
+    rating,
+    distance_km,
+    estimated_arrival_minutes,
+    available_spots,
+    starting_price,
+    is_available,
+    latitude,
+    longitude
+FROM valets
       `
     );
 

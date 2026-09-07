@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 
 import '../destination/destination_screen.dart';
+import '../profile/profile_screen.dart';
+import 'booking_confirmed_screen.dart';
 
 class MyBookingsScreen extends StatefulWidget {
   const MyBookingsScreen({super.key});
@@ -14,23 +16,13 @@ class MyBookingsScreen extends StatefulWidget {
 }
 
 class _MyBookingsScreenState extends State<MyBookingsScreen> {
-  // ============================================================
-  // API URL
-  // ============================================================
-  //
-  // Android Emulator:
-  // 10.0.2.2 = your Windows computer
-  //
-  // Backend:
-  // http://localhost:3000
-  //
-  // From Android emulator we use:
-  // http://10.0.2.2:3000
-  //
   static const String baseUrl = 'http://10.0.2.2:3000';
 
   bool _isLoading = true;
   String? _errorMessage;
+
+  // 0 = Active Service, 1 = Upcoming, 2 = Past
+  int _selectedTab = 0;
 
   List<Map<String, dynamic>> _bookings = [];
 
@@ -41,7 +33,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   }
 
   // ============================================================
-  // LOAD BOOKINGS
+  // LOAD BOOKINGS FROM POSTGRESQL
   // ============================================================
 
   Future<void> _loadBookings() async {
@@ -58,16 +50,18 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final firebaseUid = user.uid;
 
       final uri = Uri.parse(
-        '$baseUrl/api/bookings/$firebaseUid',
+        '$baseUrl/api/bookings/${Uri.encodeComponent(firebaseUid)}',
       );
 
       debugPrint('GET BOOKINGS: $uri');
@@ -79,13 +73,8 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         },
       );
 
-      debugPrint(
-        'BOOKINGS STATUS: ${response.statusCode}',
-      );
-
-      debugPrint(
-        'BOOKINGS RESPONSE: ${response.body}',
-      );
+      debugPrint('BOOKINGS STATUS: ${response.statusCode}');
+      debugPrint('BOOKINGS RESPONSE: ${response.body}');
 
       if (response.statusCode != 200) {
         throw Exception(
@@ -93,39 +82,46 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
         );
       }
 
-      final Map<String, dynamic> json =
-          jsonDecode(response.body);
+      final decoded = jsonDecode(response.body);
 
-      if (json['success'] != true) {
+      if (decoded is! Map<String, dynamic>) {
+        throw Exception('Invalid bookings response.');
+      }
+
+      if (decoded['success'] != true) {
         throw Exception(
-          json['message']?.toString() ??
+          decoded['message']?.toString() ??
               'Unable to load bookings',
         );
       }
 
-      final List<dynamic> bookingList =
-          json['bookings'] ?? [];
+      final rawBookings = decoded['bookings'];
 
-      final List<Map<String, dynamic>> loadedBookings =
-          bookingList
-              .map(
-                (booking) =>
-                    Map<String, dynamic>.from(
-                  booking as Map,
-                ),
-              )
-              .toList();
+      final List<Map<String, dynamic>> loadedBookings = [];
+
+      if (rawBookings is List) {
+        for (final booking in rawBookings) {
+          if (booking is Map) {
+            loadedBookings.add(
+              Map<String, dynamic>.from(booking),
+            );
+          }
+        }
+      }
 
       if (!mounted) return;
 
       setState(() {
         _bookings = loadedBookings;
         _isLoading = false;
+        _errorMessage = null;
       });
-    } catch (error) {
+
       debugPrint(
-        'BOOKINGS ERROR: $error',
+        'BOOKINGS LOADED: ${loadedBookings.length}',
       );
+    } catch (error) {
+      debugPrint('BOOKINGS ERROR: $error');
 
       if (!mounted) return;
 
@@ -145,9 +141,244 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
-        builder: (_) => DestinationScreen(),
+        builder: (_) => const DestinationScreen(),
       ),
     );
+  }
+
+  // ============================================================
+  // BOOKING STATUS
+  // ============================================================
+
+  bool _isActive(Map<String, dynamic> data) {
+    final status = _stringValue(
+      data,
+      'status',
+      fallback: 'confirmed',
+    ).toLowerCase().trim();
+
+    return {
+      'active',
+      'in_progress',
+      'in-progress',
+      'in progress',
+      'arriving',
+      'arrived',
+      'vehicle_received',
+      'vehicle-received',
+      'parking',
+      'parked',
+      'retrieving',
+      'ready_for_pickup',
+      'ready-for-pickup',
+    }.contains(status);
+  }
+
+  bool _isPast(Map<String, dynamic> data) {
+    final status = _stringValue(
+      data,
+      'status',
+      fallback: 'confirmed',
+    ).toLowerCase().trim();
+
+    return {
+      'completed',
+      'cancelled',
+      'canceled',
+      'expired',
+      'no_show',
+      'no-show',
+      'rejected',
+      'payment_failed',
+      'payment-failed',
+    }.contains(status);
+  }
+
+  List<Map<String, dynamic>> get _upcomingBookings {
+    return _bookings.where((booking) {
+      return !_isActive(booking) && !_isPast(booking);
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> get _activeBookings {
+    return _bookings.where(_isActive).toList();
+  }
+
+  List<Map<String, dynamic>> get _pastBookings {
+    return _bookings.where(_isPast).toList();
+  }
+
+  // ============================================================
+  // SAFE VALUES
+  // ============================================================
+
+  String _stringValue(
+    Map<String, dynamic> data,
+    String key, {
+    String fallback = '',
+  }) {
+    final value = data[key];
+
+    if (value == null) return fallback;
+
+    final text = value.toString();
+
+    if (text.isEmpty || text == 'null') {
+      return fallback;
+    }
+
+    return text;
+  }
+
+  String _price(Map<String, dynamic> data) {
+    final value = data['amount'];
+
+    if (value == null) return '₹0';
+
+    final amount = double.tryParse(
+      value.toString(),
+    );
+
+    if (amount == null) {
+      return '₹${value.toString()}';
+    }
+
+    if (amount == amount.roundToDouble()) {
+      return '₹${amount.toInt()}';
+    }
+
+    return '₹${amount.toStringAsFixed(2)}';
+  }
+
+  // ============================================================
+  // DATE / TIME
+  // ============================================================
+
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
+
+    if (value is DateTime) return value;
+
+    return DateTime.tryParse(
+      value.toString(),
+    );
+  }
+
+  String _formatBookingDate(Map<String, dynamic> data) {
+    // If scheduled_at is added to the backend later, this screen
+    // will automatically prefer it.
+    final scheduledAt =
+        _parseDate(data['scheduled_at']) ??
+        _parseDate(data['scheduledAt']);
+
+    final createdAt =
+        _parseDate(data['created_at']) ??
+        _parseDate(data['createdAt']);
+
+    final dateTime = scheduledAt ?? createdAt;
+
+    if (dateTime == null) {
+      return 'Booking time unavailable';
+    }
+
+    final local = dateTime.toLocal();
+    final now = DateTime.now();
+
+    final today = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    );
+
+    final dateOnly = DateTime(
+      local.year,
+      local.month,
+      local.day,
+    );
+
+    final difference =
+        dateOnly.difference(today).inDays;
+
+    String day;
+
+    if (difference == 0) {
+      day = 'Today';
+    } else if (difference == 1) {
+      day = 'Tomorrow';
+    } else if (difference == -1) {
+      day = 'Yesterday';
+    } else {
+      day =
+          '${local.day} ${_monthName(local.month)}';
+    }
+
+    final hour = local.hour == 0
+        ? 12
+        : local.hour > 12
+            ? local.hour - 12
+            : local.hour;
+
+    final minute =
+        local.minute.toString().padLeft(2, '0');
+
+    final period =
+        local.hour >= 12 ? 'PM' : 'AM';
+
+    return '$day · $hour:$minute $period';
+  }
+
+  String _monthName(int month) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+
+    if (month < 1 || month > 12) {
+      return '';
+    }
+
+    return months[month - 1];
+  }
+
+  // ============================================================
+  // STATUS LABEL
+  // ============================================================
+
+  String _displayStatus(Map<String, dynamic> data) {
+    final status = _stringValue(
+      data,
+      'status',
+      fallback: 'confirmed',
+    ).toLowerCase().trim();
+
+    if (_isActive(data)) {
+      return 'In Progress';
+    }
+
+    if (status == 'completed') {
+      return 'Completed';
+    }
+
+    if (status == 'cancelled' ||
+        status == 'canceled') {
+      return 'Cancelled';
+    }
+
+    if (status == 'pending') {
+      return 'Pending';
+    }
+
+    return 'Scheduled';
   }
 
   // ============================================================
@@ -157,33 +388,77 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F8F9),
+      backgroundColor: const Color(0xFFF7F7F7),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
 
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFF8F8F9),
-        elevation: 0,
-        centerTitle: true,
-
-        leading: IconButton(
-          icon: const Icon(
-            Icons.arrow_back_ios_new,
-            size: 20,
-            color: Color(0xFF222222),
-          ),
-          onPressed: _goBack,
-        ),
-
-        title: const Text(
-          'My Bookings',
-          style: TextStyle(
-            color: Color(0xFF171717),
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-          ),
+            Expanded(
+              child: _buildBody(),
+            ),
+          ],
         ),
       ),
+      bottomNavigationBar:
+          _buildBottomNavigation(),
+    );
+  }
 
-      body: _buildBody(),
+  // ============================================================
+  // HEADER
+  // ============================================================
+
+  Widget _buildHeader() {
+    return Container(
+      height: 58,
+      color: Colors.white,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 18,
+      ),
+      child: Row(
+        children: [
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 32,
+              minHeight: 32,
+            ),
+            icon: const Icon(
+              Icons.arrow_back_ios_new,
+              size: 20,
+              color: Color(0xFF222222),
+            ),
+            onPressed: _goBack,
+          ),
+
+          const Expanded(
+            child: Text(
+              'My Bookings',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Color(0xFF171717),
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(
+              minWidth: 32,
+              minHeight: 32,
+            ),
+            icon: const Icon(
+              Icons.refresh,
+              size: 20,
+              color: Color(0xFF555555),
+            ),
+            onPressed: _loadBookings,
+          ),
+        ],
+      ),
     );
   }
 
@@ -201,87 +476,261 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     }
 
     if (_errorMessage != null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment:
-                MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.error_outline,
-                size: 60,
-                color: Color(0xFF999999),
-              ),
-
-              const SizedBox(height: 18),
-
-              Text(
-                _errorMessage!,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: Color(0xFF666666),
+      return RefreshIndicator(
+        color: const Color(0xFFEF0038),
+        onRefresh: _loadBookings,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: [
+            SizedBox(
+              height: 520,
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.cloud_off_outlined,
+                        size: 58,
+                        color: Color(0xFFCCCCCC),
+                      ),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Unable to load bookings',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF222222),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _errorMessage!,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF777777),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      ElevatedButton(
+                        onPressed: _loadBookings,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEF0038),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        child: const Text(
+                          'Retry',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-
-              const SizedBox(height: 20),
-
-              ElevatedButton(
-                onPressed: _loadBookings,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      const Color(0xFFEF0038),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding:
-                      const EdgeInsets.symmetric(
-                    horizontal: 24,
-                    vertical: 12,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius:
-                        BorderRadius.circular(10),
-                  ),
-                ),
-                child: const Text(
-                  'Retry',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       );
     }
 
-    if (_bookings.isEmpty) {
-      return _buildEmptyState();
+    final activeBookings = _activeBookings;
+    final upcomingBookings = _upcomingBookings;
+    final pastBookings = _pastBookings;
+
+    final List<Map<String, dynamic>> selectedBookings;
+
+    if (_selectedTab == 0) {
+      selectedBookings = activeBookings;
+    } else if (_selectedTab == 1) {
+      selectedBookings = upcomingBookings;
+    } else {
+      selectedBookings = pastBookings;
     }
 
     return RefreshIndicator(
       color: const Color(0xFFEF0038),
       onRefresh: _loadBookings,
-      child: ListView.builder(
-        physics:
-            const AlwaysScrollableScrollPhysics(),
-
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(
           20,
-          10,
+          14,
           20,
-          30,
+          25,
         ),
+        children: [
+          _buildBookingTabs(
+            activeCount: activeBookings.length,
+            upcomingCount: upcomingBookings.length,
+            pastCount: pastBookings.length,
+          ),
 
-        itemCount: _bookings.length,
+          const SizedBox(height: 18),
 
-        itemBuilder: (context, index) {
-          return _BookingCard(
-            data: _bookings[index],
-          );
-        },
+          if (selectedBookings.isEmpty)
+            SizedBox(
+              height: 470,
+              child: _buildTabEmptyState(
+                selectedTab: _selectedTab,
+              ),
+            )
+          else
+            ...selectedBookings.map(
+              (booking) => Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _BookingCard(
+                  data: booking,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  // ============================================================
+  // ACTIVE / UPCOMING TABS
+  // ============================================================
+
+  Widget _buildBookingTabs({
+    required int activeCount,
+    required int upcomingCount,
+    required int pastCount,
+  }) {
+    return Container(
+      height: 48,
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFEFEF),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _BookingTab(
+              label: 'Active Service',
+              count: activeCount,
+              selected: _selectedTab == 0,
+              onTap: () {
+                if (_selectedTab == 0) return;
+
+                setState(() {
+                  _selectedTab = 0;
+                });
+              },
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _BookingTab(
+              label: 'Upcoming',
+              count: upcomingCount,
+              selected: _selectedTab == 1,
+              onTap: () {
+                if (_selectedTab == 1) return;
+
+                setState(() {
+                  _selectedTab = 1;
+                });
+              },
+            ),
+          ),
+          const SizedBox(width: 4),
+          Expanded(
+            child: _BookingTab(
+              label: 'Past',
+              count: pastCount,
+              selected: _selectedTab == 2,
+              onTap: () {
+                if (_selectedTab == 2) return;
+
+                setState(() {
+                  _selectedTab = 2;
+                });
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTabEmptyState({
+    required int selectedTab,
+  }) {
+    final isActiveTab = selectedTab == 0;
+    final isUpcomingTab = selectedTab == 1;
+
+    final IconData icon = isActiveTab
+        ? Icons.directions_car_outlined
+        : isUpcomingTab
+            ? Icons.calendar_today_outlined
+            : Icons.history_outlined;
+
+    final String title = isActiveTab
+        ? 'No active service'
+        : isUpcomingTab
+            ? 'No upcoming bookings'
+            : 'No past bookings';
+
+    final String subtitle = isActiveTab
+        ? 'Your active valet service will appear here.'
+        : isUpcomingTab
+            ? 'Your scheduled bookings will appear here.'
+            : 'Your completed and cancelled bookings will appear here.';
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 70,
+              height: 70,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F0F0),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Icon(
+                icon,
+                size: 36,
+                color: const Color(0xFFBDBDBD),
+              ),
+            ),
+
+            const SizedBox(height: 18),
+
+            Text(
+              title,
+              style: const TextStyle(
+                fontSize: 19,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF222222),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            Text(
+              subtitle,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Color(0xFF777777),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -294,24 +743,25 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(30),
-
         child: Column(
           mainAxisAlignment:
               MainAxisAlignment.center,
-
           children: [
-            const Icon(
-              Icons.local_parking_outlined,
-              size: 65,
-              color: Color(0xFFCCCCCC),
+            const Text(
+              'P',
+              style: TextStyle(
+                fontSize: 60,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFFD1D1D1),
+              ),
             ),
 
-            const SizedBox(height: 20),
+            const SizedBox(height: 8),
 
             const Text(
               'No bookings yet',
               style: TextStyle(
-                fontSize: 21,
+                fontSize: 20,
                 fontWeight: FontWeight.w700,
                 color: Color(0xFF222222),
               ),
@@ -323,7 +773,7 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
               'Your confirmed bookings will appear here.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: 13,
                 color: Color(0xFF777777),
               ),
             ),
@@ -332,11 +782,101 @@ class _MyBookingsScreenState extends State<MyBookingsScreen> {
       ),
     );
   }
+
+  // ============================================================
+  // BOTTOM NAVIGATION
+  // ============================================================
+
+  Widget _buildBottomNavigation() {
+    return Container(
+      height: 76,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          top: BorderSide(
+            color: Color(0xFFEAEAEA),
+          ),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment:
+            MainAxisAlignment.spaceAround,
+        children: [
+          _BottomNavItem(
+            icon: Icons.home_outlined,
+            label: 'Home',
+            selected: false,
+            onTap: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const DestinationScreen(),
+                ),
+              );
+            },
+          ),
+
+          _BottomNavItem(
+            icon: Icons.calendar_month_outlined,
+            label: 'Bookings',
+            selected: true,
+            onTap: () {},
+          ),
+
+          _BottomNavItem(
+            icon: Icons.notifications_none_outlined,
+            label: 'Alerts',
+            selected: false,
+            onTap: () {},
+          ),
+
+          _BottomNavItem(
+            icon: Icons.person_outline,
+            label: 'Profile',
+            selected: false,
+            onTap: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ProfileScreen(),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-// ================================================================
+// ============================================================
+// SECTION TITLE
+// ============================================================
+
+class _SectionTitle extends StatelessWidget {
+  final String title;
+
+  const _SectionTitle({
+    required this.title,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      title,
+      style: const TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        color: Color(0xFF666666),
+      ),
+    );
+  }
+}
+
+// ============================================================
 // BOOKING CARD
-// ================================================================
+// ============================================================
 
 class _BookingCard extends StatelessWidget {
   final Map<String, dynamic> data;
@@ -346,7 +886,7 @@ class _BookingCard extends StatelessWidget {
   });
 
   // ============================================================
-  // SAFE VALUE HELPERS
+  // SAFE STRING
   // ============================================================
 
   String _stringValue(
@@ -355,18 +895,141 @@ class _BookingCard extends StatelessWidget {
   }) {
     final value = data[key];
 
-    if (value == null) {
-      return fallback;
-    }
+    if (value == null) return fallback;
 
-    final text = value.toString();
+    final text = value.toString().trim();
 
-    if (text.isEmpty) {
+    if (text.isEmpty || text == 'null') {
       return fallback;
     }
 
     return text;
   }
+
+  // ============================================================
+  // BOOKING ID
+  // ============================================================
+
+  String _bookingId() {
+    final value =
+        data['booking_id'] ??
+        data['bookingId'] ??
+        data['id'];
+
+    if (value == null) {
+      return '';
+    }
+
+    return value.toString().trim();
+  }
+
+  // ============================================================
+  // ACTIVE
+  // ============================================================
+
+  bool get isActive {
+    final status = _stringValue(
+      'status',
+      fallback: 'confirmed',
+    ).toLowerCase().trim();
+
+    return {
+      'active',
+      'in_progress',
+      'in-progress',
+      'in progress',
+      'arriving',
+      'arrived',
+      'vehicle_received',
+      'vehicle-received',
+      'parking',
+      'parked',
+      'retrieving',
+      'ready_for_pickup',
+      'ready-for-pickup',
+    }.contains(status);
+  }
+
+  // ============================================================
+  // PAST
+  // ============================================================
+
+  bool get isPast {
+    final status = _stringValue(
+      'status',
+      fallback: 'confirmed',
+    ).toLowerCase().trim();
+
+    return {
+      'completed',
+      'cancelled',
+      'canceled',
+      'expired',
+      'no_show',
+      'no-show',
+      'rejected',
+      'payment_failed',
+      'payment-failed',
+    }.contains(status);
+  }
+
+  // ============================================================
+  // STATUS
+  // ============================================================
+
+  String _statusText() {
+    final status = _stringValue(
+      'status',
+      fallback: 'confirmed',
+    ).toLowerCase().trim();
+
+    if (isActive) {
+      return 'In Progress';
+    }
+
+    if (status == 'completed') {
+      return 'Completed';
+    }
+
+    if (status == 'cancelled' ||
+        status == 'canceled') {
+      return 'Cancelled';
+    }
+
+    if (status == 'pending') {
+      return 'Pending';
+    }
+
+    return 'Scheduled';
+  }
+
+  Color _statusBackground() {
+    if (isActive) {
+      return const Color(0xFFFFF5DF);
+    }
+
+    if (isPast) {
+      return const Color(0xFFF0F0F0);
+    }
+
+    return const Color(0xFFFFE9EE);
+  }
+
+  Color _statusColor() {
+    if (isActive) {
+      return const Color(0xFFB77A00);
+    }
+
+    if (isPast) {
+      return const Color(0xFF666666);
+    }
+
+    return const Color(0xFFE9003C);
+  }
+
+  // ============================================================
+  // PRICE
+  // ============================================================
 
   String _price() {
     final value = data['amount'];
@@ -375,74 +1038,190 @@ class _BookingCard extends StatelessWidget {
       return '₹0';
     }
 
-    try {
-      final amount =
-          double.parse(value.toString());
+    final amount = double.tryParse(
+      value.toString(),
+    );
 
-      if (amount == amount.roundToDouble()) {
-        return '₹${amount.toInt()}';
-      }
-
-      return '₹${amount.toStringAsFixed(2)}';
-    } catch (_) {
+    if (amount == null) {
       return '₹${value.toString()}';
     }
+
+    if (amount == amount.roundToDouble()) {
+      return '₹${amount.toInt()}';
+    }
+
+    return '₹${amount.toStringAsFixed(2)}';
   }
 
   // ============================================================
-  // STATUS
+  // DATE / TIME
   // ============================================================
 
-  String _statusText(String status) {
-    switch (status.toLowerCase()) {
-      case 'completed':
-        return 'COMPLETED';
+  DateTime? _parseDate(dynamic value) {
+    if (value == null) return null;
 
-      case 'cancelled':
-        return 'CANCELLED';
+    if (value is DateTime) return value;
 
-      case 'confirmed':
-        return 'CONFIRMED';
-
-      case 'pending':
-        return 'PENDING';
-
-      default:
-        return status.toUpperCase();
-    }
+    return DateTime.tryParse(
+      value.toString(),
+    );
   }
 
-  Color _statusBackground(String status) {
-    switch (status.toLowerCase()) {
-      case 'cancelled':
-        return const Color(0xFFFFEEEE);
+  String _bookingDate() {
+    final scheduled =
+        _parseDate(data['scheduled_at']) ??
+        _parseDate(data['scheduledAt']);
 
-      case 'completed':
-        return const Color(0xFFF0F0F0);
+    final created =
+        _parseDate(data['created_at']) ??
+        _parseDate(data['createdAt']);
 
-      case 'pending':
-        return const Color(0xFFFFF5E5);
+    final dateTime =
+        scheduled ?? created;
 
-      default:
-        return const Color(0xFFEAF8F0);
+    if (dateTime == null) {
+      return 'Booking time unavailable';
     }
+
+    final local = dateTime.toLocal();
+    final now = DateTime.now();
+
+    final today = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    );
+
+    final dateOnly = DateTime(
+      local.year,
+      local.month,
+      local.day,
+    );
+
+    final difference =
+        dateOnly.difference(today).inDays;
+
+    String day;
+
+    if (difference == 0) {
+      day = 'Today';
+    } else if (difference == 1) {
+      day = 'Tomorrow';
+    } else if (difference == -1) {
+      day = 'Yesterday';
+    } else {
+      day =
+          '${local.day} ${_monthName(local.month)}';
+    }
+
+    final hour = local.hour == 0
+        ? 12
+        : local.hour > 12
+            ? local.hour - 12
+            : local.hour;
+
+    final minute =
+        local.minute.toString().padLeft(2, '0');
+
+    final period =
+        local.hour >= 12 ? 'PM' : 'AM';
+
+    return '$day · $hour:$minute $period';
   }
 
-  Color _statusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'cancelled':
-        return const Color(0xFFD00030);
+  String _monthName(int month) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
 
-      case 'completed':
-        return const Color(0xFF666666);
-
-      case 'pending':
-        return const Color(0xFFC47A00);
-
-      default:
-        return const Color(0xFF1D8A50);
+    if (month < 1 || month > 12) {
+      return '';
     }
+
+    return months[month - 1];
   }
+
+  // ============================================================
+  // OPEN BOOKING CONFIRMED SCREEN
+  // ============================================================
+
+  void _openBookingConfirmed(
+    BuildContext context,
+  ) {
+    final bookingId = _bookingId();
+
+    if (bookingId.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Booking ID not available.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final valetName = _stringValue(
+      'valet_name',
+      fallback: _stringValue(
+        'valetName',
+        fallback: 'QuickPark Valet',
+      ),
+    );
+
+    final destinationName = _stringValue(
+      'destination_name',
+      fallback: _stringValue(
+        'destinationName',
+        fallback: 'Unknown destination',
+      ),
+    );
+
+    final carNumber = _stringValue(
+      'registration_number',
+      fallback: _stringValue(
+        'registrationNumber',
+      ),
+    );
+
+    final carModel = _stringValue(
+      'car_model',
+      fallback: _stringValue(
+        'carModel',
+        fallback: 'Vehicle',
+      ),
+    );
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => BookingConfirmedScreen(
+          bookingId: bookingId,
+          destinationName: destinationName,
+          valetName: valetName,
+          carNumber: carNumber,
+          carModel: carModel,
+          price: _price(),
+        ),
+      ),
+    );
+  }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -451,335 +1230,322 @@ class _BookingCard extends StatelessWidget {
       fallback: 'QuickPark Valet',
     );
 
-    final destination = _stringValue(
-      'destination_name',
-      fallback: 'Unknown destination',
-    );
-
     final carModel = _stringValue(
       'car_model',
       fallback: 'Vehicle',
     );
 
-    final registrationNumber = _stringValue(
+    final registrationNumber =
+        _stringValue(
       'registration_number',
     );
 
-    final status = _stringValue(
-      'status',
-      fallback: 'confirmed',
-    );
-
-    final bookingId = _stringValue(
-      'booking_id',
-    );
-
-    final price = _price();
-
-    return Container(
-      margin: const EdgeInsets.only(
-        bottom: 16,
+    final customerName = _stringValue(
+      'full_name',
+      fallback: _stringValue(
+        'customer_name',
       ),
+    );
 
-      padding: const EdgeInsets.all(18),
+    final vehicleText = [
+      if (registrationNumber.isNotEmpty)
+        registrationNumber,
+      if (customerName.isNotEmpty)
+        customerName,
+    ].join(' · ');
 
-      decoration: BoxDecoration(
-        color: Colors.white,
+    final secondaryVehicleText =
+        vehicleText.isNotEmpty
+            ? vehicleText
+            : carModel;
 
-        borderRadius:
-            BorderRadius.circular(18),
-
-        border: Border.all(
-          color: const Color(0xFFE7E7E7),
+    return GestureDetector(
+      onTap: () {
+        _openBookingConfirmed(context);
+      },
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.fromLTRB(
+          12,
+          12,
+          12,
+          10,
         ),
-      ),
-
-      child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
-
-        children: [
-          // ======================================================
-          // HEADER
-          // ======================================================
-
-          Row(
-            children: [
-              Container(
-                width: 48,
-                height: 48,
-
-                decoration: BoxDecoration(
-                  color:
-                      const Color(0xFFFFE8EE),
-
-                  borderRadius:
-                      BorderRadius.circular(14),
-                ),
-
-                child: const Icon(
-                  Icons.directions_car_outlined,
-                  color: Color(0xFFEF0038),
-                  size: 25,
-                ),
-              ),
-
-              const SizedBox(width: 12),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-
-                  children: [
-                    Text(
-                      valetName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight:
-                            FontWeight.w700,
-                        color:
-                            Color(0xFF171717),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius:
+              BorderRadius.circular(14),
+          border: Border.all(
+            color: const Color(0xFFF0B52B),
+            width: 1.0,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment:
+              CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isActive
+                            ? 'CURRENT BOOKING'
+                            : isPast
+                                ? 'PAST BOOKING'
+                                : 'UPCOMING BOOKING',
+                        style:
+                            const TextStyle(
+                          fontSize: 10,
+                          fontWeight:
+                              FontWeight.w600,
+                          color:
+                              Color(0xFF777777),
+                        ),
                       ),
-                    ),
-
-                    const SizedBox(height: 4),
-
-                    Text(
-                      destination,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color:
-                            Color(0xFF777777),
+                      const SizedBox(height: 7),
+                      Text(
+                        valetName,
+                        maxLines: 1,
+                        overflow:
+                            TextOverflow.ellipsis,
+                        style:
+                            const TextStyle(
+                          fontSize: 16,
+                          fontWeight:
+                              FontWeight.w700,
+                          color:
+                              Color(0xFF171717),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // STATUS
-
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(
-                  horizontal: 9,
-                  vertical: 6,
-                ),
-
-                decoration: BoxDecoration(
-                  color:
-                      _statusBackground(status),
-
-                  borderRadius:
-                      BorderRadius.circular(8),
-                ),
-
-                child: Text(
-                  _statusText(status),
-
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight:
-                        FontWeight.w700,
-                    color:
-                        _statusColor(status),
+                    ],
                   ),
                 ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 18),
-
-          const Divider(
-            height: 1,
-            color: Color(0xFFEAEAEA),
-          ),
-
-          const SizedBox(height: 16),
-
-          // ======================================================
-          // DESTINATION
-          // ======================================================
-
-          Row(
-            children: [
-              const Icon(
-                Icons.location_on_outlined,
-                size: 19,
-                color: Color(0xFF777777),
-              ),
-
-              const SizedBox(width: 9),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-
-                  children: [
-                    const Text(
-                      'Destination',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color:
-                            Color(0xFF999999),
-                      ),
-                    ),
-
-                    const SizedBox(height: 2),
-
-                    Text(
-                      destination,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            FontWeight.w600,
-                        color:
-                            Color(0xFF222222),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          // ======================================================
-          // VEHICLE
-          // ======================================================
-
-          Row(
-            children: [
-              const Icon(
-                Icons.directions_car_outlined,
-                size: 19,
-                color: Color(0xFF777777),
-              ),
-
-              const SizedBox(width: 9),
-
-              Expanded(
-                child: Column(
-                  crossAxisAlignment:
-                      CrossAxisAlignment.start,
-
-                  children: [
-                    const Text(
-                      'Vehicle',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color:
-                            Color(0xFF999999),
-                      ),
-                    ),
-
-                    const SizedBox(height: 2),
-
-                    Text(
-                      carModel +
-                          (registrationNumber
-                                  .isNotEmpty
-                              ? ' • $registrationNumber'
-                              : ''),
-
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight:
-                            FontWeight.w600,
-                        color:
-                            Color(0xFF222222),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 14),
-
-          // ======================================================
-          // PRICE
-          // ======================================================
-
-          Row(
-            children: [
-              const Icon(
-                Icons.payments_outlined,
-                size: 19,
-                color: Color(0xFF777777),
-              ),
-
-              const SizedBox(width: 9),
-
-              const Expanded(
-                child: Text(
-                  'Amount',
-                  style: TextStyle(
-                    fontSize: 14,
+                const SizedBox(width: 8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
                     color:
-                        Color(0xFF666666),
+                        _statusBackground(),
+                    borderRadius:
+                        BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    _statusText(),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight:
+                          FontWeight.w700,
+                      color:
+                          _statusColor(),
+                    ),
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              secondaryVehicleText,
+              maxLines: 1,
+              overflow:
+                  TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF777777),
               ),
-
-              Text(
-                price,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight:
-                      FontWeight.w800,
-                  color:
-                      Color(0xFF171717),
-                ),
-              ),
-            ],
-          ),
-
-          // ======================================================
-          // BOOKING ID
-          // ======================================================
-
-          if (bookingId.isNotEmpty) ...[
-            const SizedBox(height: 16),
-
+            ),
+            const SizedBox(height: 9),
             const Divider(
               height: 1,
               color: Color(0xFFEAEAEA),
             ),
-
-            const SizedBox(height: 12),
-
+            const SizedBox(height: 9),
             Row(
               children: [
-                const Text(
-                  'Booking ID',
-                  style: TextStyle(
-                    fontSize: 11,
-                    color:
-                        Color(0xFF999999),
+                Expanded(
+                  child: Text(
+                    _bookingDate(),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color:
+                          Color(0xFF777777),
+                    ),
                   ),
                 ),
-
-                const Spacer(),
-
                 Text(
-                  bookingId,
+                  _price(),
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 16,
                     fontWeight:
-                        FontWeight.w600,
+                        FontWeight.w800,
                     color:
-                        Color(0xFF555555),
+                        Color(0xFFEF0038),
                   ),
                 ),
               ],
             ),
           ],
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// BOOKING TAB
+// ============================================================
+
+class _BookingTab extends StatelessWidget {
+  final String label;
+  final int count;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _BookingTab({
+    required this.label,
+    required this.count,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected
+              ? Colors.white
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(9),
+          boxShadow: selected
+              ? const [
+                  BoxShadow(
+                    color: Color(0x12000000),
+                    blurRadius: 4,
+                    offset: Offset(0, 1),
+                  ),
+                ]
+              : null,
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: selected
+                    ? FontWeight.w700
+                    : FontWeight.w500,
+                color: selected
+                    ? const Color(0xFF171717)
+                    : const Color(0xFF777777),
+              ),
+            ),
+
+            if (count > 0) ...[
+              const SizedBox(width: 6),
+
+              Container(
+                constraints: const BoxConstraints(
+                  minWidth: 20,
+                  minHeight: 20,
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 5,
+                ),
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: selected
+                      ? const Color(0xFFFFE8EE)
+                      : const Color(0xFFE1E1E1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  count.toString(),
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: selected
+                        ? const Color(0xFFEF0038)
+                        : const Color(0xFF666666),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ============================================================
+// BOTTOM NAV ITEM
+// ============================================================
+
+class _BottomNavItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _BottomNavItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected
+        ? const Color(0xFFEF0038)
+        : const Color(0xFF777777);
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        width: 65,
+        child: Column(
+          mainAxisAlignment:
+              MainAxisAlignment.center,
+          children: [
+            Icon(
+              icon,
+              size: 23,
+              color: color,
+            ),
+
+            const SizedBox(height: 4),
+
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: selected
+                    ? FontWeight.w700
+                    : FontWeight.w500,
+                color: color,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
